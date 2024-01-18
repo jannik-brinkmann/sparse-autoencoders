@@ -42,11 +42,12 @@ def get_unexplained_variance(x, x_hat):
     return residuals / total
  
 def training(args):
-    act_names = [f"gpt_neox.layers.{i}" for i in range(6)]
-    act_names += [f"gpt_neox.layers.{i}.mlp" for i in range(6)]
-    act_names += [f"gpt_neox.layers.{i}.attention" for i in range(6)]
+    #act_names = [f"gpt_neox.layers.{i}" for i in range(6)]
+    act_names = [f"gpt_neox.layers.{i}.attention" for i in range(0, 6)]
+    #act_names += [f"gpt_neox.layers.{i}.attention" for i in range(6)]
     for act_name in act_names:
-        wandb.init(project="autoencoder")
+        if args.use_wandb:
+            wandb.init(project="autoencoder")
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
         buffer = TensorBuffer(819_200, 2048)
@@ -72,15 +73,16 @@ def training(args):
             if (i) % 10 == 0:
                 fvu = get_unexplained_variance(acts, x_hat)
                 n_dead_features = (buffer.get().sum(dim=0) == 0).sum().item()
-                wandb_dict = {
-                    "Total Loss": loss.item(), 
-                    "L1": l1_loss.item(),
-                    "MSE": (acts - x_hat).pow(2).mean(),
-                    "Fraction of Variance Unexplained": fvu,
-                    "L0": torch.norm(features, 0, dim=-1).mean(),
-                    "Dead Features": n_dead_features
-                }
-                wandb.log(wandb_dict)
+                if args.use_wandb:
+                    wandb_dict = {
+                        "Total Loss": loss.item(), 
+                        "L1": l1_loss.item(),
+                        "MSE": (acts - x_hat).pow(2).mean(),
+                        "Fraction of Variance Unexplained": fvu,
+                        "L0": torch.norm(features, 0, dim=-1).mean(),
+                        "Dead Features": n_dead_features
+                    }
+                    wandb.log(wandb_dict)
 
             if (i) % 3440 == 0:
                 ae.save(i, prefix=act_name)
@@ -91,8 +93,8 @@ def training(args):
                 print(dead_feature_indices)
                 ae.neuron_resampling(dead_feature_indices)
                 optimizer.reset_parameters(dead_feature_indices)
-
-        wandb.finish()
+        if args.use_wandb:
+            wandb.finish()
 
         
 
@@ -103,6 +105,7 @@ if __name__ == "__main__":
     class TrainingArguments:
         n_steps: int = 10_322
         lr: float = 1e-4
+        use_wandb: bool = True
     args = dataclass_to_args(TrainingArguments())
 
     training(args)

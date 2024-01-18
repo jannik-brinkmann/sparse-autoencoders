@@ -26,6 +26,9 @@ class Dict(ABC):
             os.makedirs(checkpoint_dir)
         torch.save(self.state_dict(), os.path.join(checkpoint_dir, prefix + str(training_step) + ".pt"))
 
+    def load(self, training_step, prefix, checkpoint_dir="./checkpoints"):
+        self.load_state_dict(torch.load(os.path.join(checkpoint_dir, prefix + str(training_step) + ".pt")))
+
 
 class UntiedAutoEncoder(Dict, nn.Module):
 
