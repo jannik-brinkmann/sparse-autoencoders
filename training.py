@@ -80,7 +80,7 @@ def compute_loss(activations, features, reconstructions):
     return loss
 
 # activation buffer
-activation_buffer = ActivationBuffer(819_200, ratio * activation_size)
+feature_buffer = ActivationBuffer(819_200, ratio * activation_size)
 
 # training loop
 for i_step in tqdm(range(steps)):
@@ -102,8 +102,8 @@ for i_step in tqdm(range(steps)):
     scheduler.step()
 
     # cache features activations
-    activation_buffer.push(features.cpu())
+    feature_buffer.push(features.cpu())
 
     if i_step % evaluation_interval == 0:
-        metrics = evaluate(activation_name, test_loader, dictionary, model, device)
+        metrics = evaluate(activation_name, test_loader, dictionary, feature_buffer, model, device)
         wandb.log(metrics)

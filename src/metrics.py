@@ -31,6 +31,10 @@ def MSE(x, x_hat):
     """compute mean squared error between input activations and reconstructed activations"""
     return (x - x_hat).pow(2).mean()
 
+def count_dead_features(feature_buffer):
+    """compute mean squared error between input activations and reconstructed activations"""
+    return (feature_buffer.get().sum(dim=0) == 0).sum().item()
+
 def FLR(
         activation_name: str, 
         dict: Dict,

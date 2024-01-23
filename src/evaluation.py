@@ -6,18 +6,20 @@ from transformers import PreTrainedModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from .autoencoder import Dict
-from .metrics import FLR, FVU, L0, L1, MSE
+from .metrics import FLR, FVU, L0, L1, MSE, count_dead_features
+from .buffer import ActivationBuffer
 
 
 def evaluate(
         activation_name: str, 
         data_loader: DataLoader,
         dictionary: Dict, 
+        feature_buffer: ActivationBuffer,
         model: PreTrainedModel,
         device: str
     ):
     
-    metrics = {k: [] for k in ["FLR", "FVU", "L0", "L1", "MSE"]}
+    metrics = {k: [] for k in ["FLR", "FVU", "L0", "L1", "MSE", "N_DEAD"]}
     for idx, batch in enumerate(tqdm(data_loader)):
         input_ids = batch["input_ids"].to(device)
 
@@ -44,6 +46,7 @@ def evaluate(
                 metrics["L0"].append(L0(features))
                 metrics["L1"].append(L1(features))
                 metrics["MSE"].append(MSE(activations, reconstructions))
+                metrics["N_DEAD"].append(count_dead_features(feature_buffer))
 
     # compute average of each metric
     metrics = {k: sum(v) / len(v) for k, v in metrics.items()}
