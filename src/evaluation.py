@@ -6,7 +6,7 @@ from transformers import PreTrainedModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from .autoencoder import Dict
-from .metrics import FLR, FVU, L0, L1, MSE, count_dead_features
+from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude
 from .buffer import ActivationBuffer
 
 
@@ -19,7 +19,7 @@ def evaluate(
         device: str
     ):
     
-    metrics = {k: [] for k in ["FLR", "FVU", "L0", "L1", "MSE", "N_DEAD"]}
+    metrics = {k: [] for k in ["Loss Recovered", "FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency", "Feature Magnitude"]}
     for idx, batch in enumerate(tqdm(data_loader)):
         input_ids = batch["input_ids"].to(device)
 
@@ -41,12 +41,14 @@ def evaluate(
                 reconstructions = dictionary.decode(features)
 
                 # compute metrics
-                metrics["FLR"].append(FLR(activation_name, dictionary, input_ids, model))
+                metrics["Loss Recovered"].append(FLR(activation_name, dictionary, input_ids, model))
                 metrics["FVU"].append(FVU(activations, reconstructions))
                 metrics["L0"].append(L0(features))
                 metrics["L1"].append(L1(features))
                 metrics["MSE"].append(MSE(activations, reconstructions))
-                metrics["N_DEAD"].append(count_dead_features(feature_buffer))
+                metrics["Dead Features"].append(dead_features(feature_buffer))
+                metrics["Feature Frequency"].append(feature_frequency(feature_buffer))
+                metrics["Feature Magnitude"].append(feature_magnitude(feature_buffer))
 
     # compute average of each metric
     metrics = {k: sum(v) / len(v) for k, v in metrics.items()}
