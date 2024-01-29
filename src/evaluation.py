@@ -19,8 +19,11 @@ def evaluate(
         device: str
     ):
     
-    metrics = {k: [] for k in ["Loss Recovered", "FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency", "Feature Magnitude"]}
+    # metrics = {k: [] for k in ["Loss Recovered", "FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency", "Feature Magnitude"]}
+    metrics = {k: [] for k in ["FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency"]}
     for idx, batch in enumerate(tqdm(data_loader)):
+        if(idx == 20):
+            break
         input_ids = batch["input_ids"].to(device)
 
         # get activations
@@ -41,15 +44,27 @@ def evaluate(
                 reconstructions = dictionary.decode(features)
 
                 # compute metrics
-                metrics["Loss Recovered"].append(FLR(activation_name, dictionary, input_ids, model))
+                # metrics["Loss Recovered"].append(FLR(activation_name, dictionary, input_ids, model))
                 metrics["FVU"].append(FVU(activations, reconstructions))
                 metrics["L0"].append(L0(features))
                 metrics["L1"].append(L1(features))
                 metrics["MSE"].append(MSE(activations, reconstructions))
                 metrics["Dead Features"].append(dead_features(feature_buffer))
                 metrics["Feature Frequency"].append(feature_frequency(feature_buffer))
-                metrics["Feature Magnitude"].append(feature_magnitude(feature_buffer))
+                # metrics["Feature Magnitude"].append(feature_magnitude(feature_buffer))
 
     # compute average of each metric
+                
     metrics = {k: sum(v) / len(v) for k, v in metrics.items()}
+
+    #convert each to list or item() if possible
+    for k, v in metrics.items():
+        # check if v is a single value
+        if isinstance(v, torch.Tensor):
+            if v.numel() == 1:
+                metrics[k] = v.item()
+            else:
+                metrics[k] = v.tolist()
+        else:
+            metrics[k] = v
     return metrics

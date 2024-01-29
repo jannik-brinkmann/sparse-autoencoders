@@ -4,10 +4,12 @@ import os
 from typing import Dict, List, Tuple, TypeVar, Union
 
 import torch
-from baukit import Trace
+from baukit import Trace, TraceDict
 from datasets import Dataset, DatasetDict, load_dataset
 from torch.utils.data import DataLoader
 from transformers import PreTrainedTokenizerBase
+from einops import rearrange
+from tqdm import tqdm
 
 T = TypeVar("T", bound=Union[Dataset, DatasetDict])
 def chunk_and_tokenize(
@@ -133,12 +135,36 @@ def get_columns_all_equal(dataset: Union[Dataset, DatasetDict]) -> List[str]:
 
     return dataset.column_names
 
-def get_activation_path(batch, act_name):
-    cache_dir = "/ceph/jbrinkma/GitHub/chess-interp/training/activation_cache"
-    model_name_or_path = "EleutherAI/pythia-70m-deduped" 
-    dataset_name_or_path = "Elriggs/openwebtext-100k" 
-    return os.path.join(cache_dir, f"{model_name_or_path}_{dataset_name_or_path}_{act_name}_{batch}.pt".replace("/", "_"))
-  
+def get_activation_path(args, act_name, batch):
+    return os.path.join(args.cache_dir, f"{args.model_name_or_path}_{args.dataset_name_or_path}_{act_name}_{batch}.pt".replace("/", "_"))
+    
+def cache_activations(args, model, data_loader, activation_names, device, check_if_exists=True):
+    os.makedirs(args.cache_dir, exist_ok=True)
+
+    # check if data has already been cached before
+    if check_if_exists:
+        substring = f"{args.model_name_or_path}_{args.dataset_name_or_path}".replace("/", "_")
+        for root, dirnames, filenames in os.walk(args.cache_dir):
+            for filename in filenames:
+                if substring in filename:
+                    return
+
+    # go through the data_loader and save activations batch by batch
+    for batch_idx, batch in enumerate(tqdm(data_loader)):
+        tokens = batch["input_ids"].to(device)
+        with torch.no_grad():
+            with TraceDict(model, activation_names) as ret:
+                _ = model(tokens)
+                for act_name in activation_names:
+                    activation_path = get_activation_path(args, act_name, batch_idx)
+                    # if not os.path.isfile(activation_path):
+                    representation = ret[act_name].output
+                    if(isinstance(representation, tuple)):
+                        representation = representation[0]
+                    activation = rearrange(representation, "b seq d_model -> (b seq) d_model").cpu()
+                    # Save the activations to the HDF5 file
+                    torch.save(activation, activation_path)
+
 def get_activation_size(activation_name, model, tokenizer, device):
     text = "Hello World!"
     tokens = tokenizer(text, return_tensors="pt").input_ids.to(device)

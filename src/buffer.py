@@ -38,7 +38,7 @@ class ActivationBuffer:
             # Calculate the space needed and shift elements
             shift = self.current_size + batch_size - self.n_samples
             self.buffer[:self.current_size - shift] = self.buffer[shift:self.current_size].clone()
-            self.buffer[self.current_size - shift:self.current_size] = batch
+            self.buffer[self.current_size - shift:self.n_samples] = batch
             self.current_size = self.n_samples
 
     def get(self):
