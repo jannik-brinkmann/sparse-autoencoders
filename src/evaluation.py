@@ -1,13 +1,13 @@
 import torch
-
 from baukit import Trace
 from einops import rearrange
-from transformers import PreTrainedModel
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from transformers import PreTrainedModel
+
 from .autoencoder import Dict
-from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude
 from .buffer import ActivationBuffer
+from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude
 
 
 def evaluate(

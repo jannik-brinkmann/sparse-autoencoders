@@ -1,15 +1,9 @@
-import os 
-import torch
-
-from baukit import Trace
-from datasets import load_dataset
-from torch.utils.data import DataLoader
-
 import math
 import multiprocessing as mp
 import os
 from typing import Dict, List, Tuple, TypeVar, Union
 
+import torch
 from baukit import Trace
 from datasets import Dataset, DatasetDict, load_dataset
 from torch.utils.data import DataLoader
@@ -160,7 +154,7 @@ def get_activation_size(activation_name, model, tokenizer, device):
 
 def get_dataloader(dataset_name_or_path, tokenizer, batch_size, context_length):
     dataset = load_dataset(dataset_name_or_path, split="train")
-    tokenized_dataset, _ = chunk_and_tokenize(dataset, tokenizer, max_length=context_length)
+    tokenized_dataset, _ = chunk_and_tokenize(dataset, tokenizer, max_length=context_length)  # If this does not work add num_proc=1
     
     # Split the dataset into training and testing
     tokenized_dataset = tokenized_dataset.train_test_split(test_size=0.02)

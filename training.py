@@ -1,17 +1,15 @@
-import os
-import torch
-from tqdm import tqdm
-import wandb
 from datetime import datetime
-from dataclasses import dataclass
-import wandb
 
+import torch
+import json
+# import wandb
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src import (
     ActivationBuffer,
-    UntiedSAE, 
-    evaluate,   
+    UntiedSAE,
+    evaluate,
     get_activation_path,
     get_activation_size,
     get_dataloader
@@ -58,7 +56,7 @@ config_keys = [
 exec(open("configurator.py").read())
 config = {k: globals()[k] for k in config_keys}
 # ------
-wandb.init(entity=wandb_entity, project=wandb_project, name=wandb_run_name, config=config)
+# wandb.init(entity=wandb_entity, project=wandb_project, name=wandb_run_name, config=config)
 
 # model and dataset
 model = AutoModelForCausalLM.from_pretrained(model_name_or_path).to(device)
@@ -86,6 +84,7 @@ feature_buffer = ActivationBuffer(819_200, ratio * activation_size)
 for i_step in tqdm(range(steps)):
 
     # get activations
+    # TODO: why 3440
     activation_path = get_activation_path(i_step % 3440, activation_name)
     activations = torch.load(activation_path).to(device)
 
@@ -106,4 +105,5 @@ for i_step in tqdm(range(steps)):
 
     if i_step % evaluation_interval == 0:
         metrics = evaluate(activation_name, test_loader, dictionary, feature_buffer, model, device)
-        wandb.log(metrics)
+        with open(f'metrics_step_{i_step}.json', 'w') as fp:
+            json.dump(metrics, fp)
