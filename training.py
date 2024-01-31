@@ -84,12 +84,14 @@ model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path).to(device)
 tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
 train_loader, test_loader = get_dataloader(args.dataset_name_or_path, tokenizer, batch_size, context_length)
 # print number of tokens in train & test_loader
-print("train_loader", len(train_loader.dataset)*context_length*batch_size)
-print("test_loader", len(test_loader.dataset)*context_length*batch_size)
+print(train_loader)
+print(f"# of Tokens: Train {len(train_loader.dataset)*context_length*batch_size/1e6:.2f} M")
+print(f"# of Tokens: Test {len(test_loader.dataset)*context_length*batch_size/1e6:.2f} M")
 
 # sparse autoencoder
 activation_size = get_activation_size(activation_name, model, tokenizer, device)
-dictionary = UntiedSAE(activation_size, ratio * activation_size)
+num_features = ratio * activation_size
+dictionary = UntiedSAE(activation_size, num_features)
 dictionary.to(device)
 
 # optimizer
@@ -102,7 +104,7 @@ def compute_loss(activations, features, reconstructions):
     return loss
 
 # activation buffer
-feature_buffer = ActivationBuffer(10000, ratio * activation_size)
+feature_buffer = ActivationBuffer(10000, num_features)
 
 # cache activations
 cache_activations(args, model, train_loader, [activation_name], device)

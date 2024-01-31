@@ -80,13 +80,14 @@ def FLR(
         loss_zero_ablation = compute_loss(input_ids, logits_zero_ablation)
         loss_dict_reconstruction = compute_loss(input_ids, logits_dict_reconstruction)
 
-        FLR = (loss_dict_reconstruction - loss_zero_ablation) / (loss - loss_zero_ablation)
-        return FLR
+        flr = (loss_dict_reconstruction - loss_zero_ablation) / (loss - loss_zero_ablation)
+        ce_diff = loss_dict_reconstruction - loss
+        return flr, loss, loss_zero_ablation, loss_dict_reconstruction, ce_diff
     
 
-def dead_features(feature_buffer):
+def dead_features(feature_buffer, threshold=0):
     # number of features that have not been activated across the 
-    return (feature_buffer.get().sum(dim=0) == 0).sum().item()
+    return (feature_buffer.get().sum(dim=0) <= threshold).sum().item()
 
 def feature_frequency(feature_buffer):
     
