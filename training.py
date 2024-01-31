@@ -37,16 +37,6 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 evaluation_interval = 20
 evaluation_steps = 20
 
-wandb_entity = "best_sae"
-wandb_project = "best_sae"
-wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-# login with secrets.json
-# Wandb setup
-secrets = json.load(open("secrets.json"))
-wandb.login(key=secrets["wandb_key"])
-wandb.init(entity=wandb_entity, project=wandb_project, name=wandb_run_name)
-
-
 # model
 args.model_name_or_path = "EleutherAI/pythia-70m-deduped"
 args.dataset_name_or_path = "Elriggs/openwebtext-100k"
@@ -85,14 +75,26 @@ tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
 train_loader, test_loader = get_dataloader(args.dataset_name_or_path, tokenizer, batch_size, context_length)
 # print number of tokens in train & test_loader
 print(train_loader)
-print(f"# of Tokens: Train {len(train_loader.dataset)*context_length*batch_size/1e6:.2f} M")
-print(f"# of Tokens: Test {len(test_loader.dataset)*context_length*batch_size/1e6:.2f} M")
+print(f"# of Tokens: Train {len(train_loader)*context_length*batch_size/1e6:.2f} M")
+print(f"# of Tokens: Test {len(test_loader)*context_length*batch_size/1e6:.2f} M")
 
 # sparse autoencoder
 activation_size = get_activation_size(activation_name, model, tokenizer, device)
 num_features = ratio * activation_size
 dictionary = UntiedSAE(activation_size, num_features)
 dictionary.to(device)
+
+# Wandb
+wandb_entity = "best_sae"
+wandb_project = "best_sae"
+model_name = args.model_name_or_path.split("/")[-1]
+# activation_name_model_name_ratio_l1_lr_time
+wandb_run_name = f"{model_name}_{activation_name}_Ratio-{ratio}_l1-{sparsity_coefficient}_lr-{learning_rate}_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+# login with secrets.json
+# Wandb setup
+secrets = json.load(open("secrets.json"))
+wandb.login(key=secrets["wandb_key"])
+wandb.init(entity=wandb_entity, project=wandb_project, name=wandb_run_name)
 
 # optimizer
 optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate, betas=(beta1, beta2), weight_decay=weight_decay)
@@ -135,6 +137,8 @@ for i_step in tqdm(range(steps)):
     if i_step % evaluation_interval == 0:
         metrics = evaluate(activation_name, test_loader, dictionary, feature_buffer, model, device)
         wandb.log(metrics)
+        # Log number of tokens so far
+        wandb.log({"Tokens": i_step * batch_size * context_length})
         print(metrics)
         # append to file, not overwrite
         with open(f'{args.results_dir}/{wandb_run_name}_metrics_step_{i_step}.json', 'a') as fp:
