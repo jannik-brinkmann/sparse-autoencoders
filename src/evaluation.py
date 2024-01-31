@@ -7,7 +7,7 @@ from transformers import PreTrainedModel
 
 from .autoencoder import Dict
 from .buffer import ActivationBuffer
-from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude
+from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0
 
 
 def evaluate(
@@ -21,10 +21,10 @@ def evaluate(
     
     # metrics = {k: [] for k in ["Loss Recovered", "FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency", "Feature Magnitude"]}
     metrics = {k: [] for k in [
-        "Metrics/CE Recovered", "Metrics/CE", "Metrics/CE Zero Ablated", "Metrics/CE SAE", "Metrics/CE-diff", "Metrics/FVU", "Metrics/L0",  "Metrics/L2 Norm (original activations)", "Metrics/L2 Ratio (reconstructed/original)",
+        "Metrics/CE Recovered", "Metrics/CE", "Metrics/CE Zero Ablated", "Metrics/CE SAE", "Metrics/CE-diff", "Metrics/FVU", "Metrics/L0",  "Metrics/L2 Norm (original activations)", "Metrics/L2 Ratio (reconstructed over original)", "Metrics/Effective L0",
 
         "Losses/L1", "Losses/MSE", 
-        
+
         "Sparsity/Dead Features", "Sparsity/Below 1e-5", "Sparsity/Below 1e-3", "Sparsity/Below 1e-2", "Sparsity/Below 1e-1", "Sparsity/Feature Frequency",
         ]}
     for idx, batch in enumerate(tqdm(data_loader)):
@@ -64,8 +64,9 @@ def evaluate(
                 metrics["Metrics/CE-diff"].append(ce_diff)
                 metrics["Metrics/FVU"].append(FVU(activations, reconstructions))
                 metrics["Metrics/L0"].append(L0(features))
+                metrics["Metrics/Effective L0"].append(Effective_L0(features))
                 metrics["Metrics/L2 Norm (original activations)"].append(l2_norm_original)
-                metrics["Metrics/L2 Ratio (reconstructed/original)"].append(l2_ratio)
+                metrics["Metrics/L2 Ratio (reconstructed over original)"].append(l2_ratio)
 
                 metrics["Sparsity/Dead Features"].append(dead_features(feature_buffer))
                 metrics["Sparsity/Below 1e-5"].append(dead_features(feature_buffer, threshold=1e-5))

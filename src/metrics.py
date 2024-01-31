@@ -21,6 +21,9 @@ def FVU(x, x_hat):
 def L0(features):
     return torch.norm(features, 0, dim=-1).mean()
 
+def Effective_L0(features):
+    # Divide the L1 of a datpoint by the max of each datapoint
+    return (torch.norm(features, 1, dim=-1) / features.max(dim=-1)[0]).nanmean()
 
 def L1(features):
     return torch.norm(features, 1, dim=-1).mean()
