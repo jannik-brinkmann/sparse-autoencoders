@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from src.geom_median.src.geom_median.torch import compute_geometric_median
 
 class Dict(ABC):
     activation_size : int
@@ -49,3 +49,27 @@ class UntiedSAE(Dict, nn.Module):
     def forward(self, x):
         return self.decode(self.encode(x))
     
+    @torch.no_grad()
+    def initialize_b_d_with_geometric_median(self, activation_store):
+        #Initialize b_d with geometric median of activations as Anthropic does: https://transformer-circuits.pub/2023/monosemantic-features#appendix-autoencoder-bias
+
+        # Ripped from Joseph Bloom's code: https://github.com/jbloomAus/mats_sae_training/blob/4c5fed8bbff8f13fdc534385caeb5455ff9d8a55/sae_training/sparse_autoencoder.py
+        # Geometric median calcuation ripped from: https://github.com/krishnap25/geom_median
+
+        all_activations = activation_store.detach().cpu()
+        out = compute_geometric_median(
+                all_activations,
+                skip_typechecks=True, 
+                maxiter=100, per_component=False).median
+        
+        
+        previous_b_d = self.b_d.clone().cpu()
+        previous_distances = torch.norm(all_activations - previous_b_d, dim=-1)
+        distances = torch.norm(all_activations - out, dim=-1)
+        
+        print("Reinitializing b_d with geometric median of activations")
+        print(f"Previous distances: {previous_distances.median(0).values.mean().item()}")
+        print(f"New distances: {distances.median(0).values.mean().item()}")
+        
+        out = torch.tensor(out, dtype=self.b_d.dtype, device=self.b_d.device)
+        self.b_d.data = out

@@ -34,22 +34,25 @@ os.makedirs(args.results_dir, exist_ok=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # I/O
-evaluation_interval = 20
-evaluation_steps = 20
+evaluation_interval = 200
+# evaluation_steps = 20
 
 # model
-args.model_name_or_path = "EleutherAI/pythia-70m-deduped"
+# args.model_name_or_path = "EleutherAI/pythia-70m-deduped"
+args.model_name_or_path = "gpt2"
 args.dataset_name_or_path = "Elriggs/openwebtext-100k"
 
 # dict
-activation_name = "gpt_neox.layers.3.mlp"
+# activation_name = "gpt_neox.layers.3.mlp"
+layer = 9
+activation_name = f"transformer.h.{layer}"
 ratio = 4
-sparsity_coefficient = 1e-3
+sparsity_coefficient = 5e-5
 
 # optimizer
 gradient_accumulation_steps = 4
 learning_rate = 1e-4
-steps = 1000
+steps = 10000
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
@@ -99,9 +102,16 @@ wandb.init(entity=wandb_entity, project=wandb_project, name=wandb_run_name)
 # optimizer
 optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate, betas=(beta1, beta2), weight_decay=weight_decay)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, steps, 2e-6)
-def compute_loss(activations, features, reconstructions):
+def compute_loss(activations, features, reconstructions, normalize=False):
     l2_loss = (activations - reconstructions).pow(2).mean()
+    # l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
+
     l1_loss = torch.norm(features, 1, dim=-1).mean()
+    if(normalize):
+        variance = (activations - activations.mean(dim=0)).pow(2).mean()
+        std = variance.sqrt()
+        l2_loss = l2_loss / variance
+        l1_loss = l1_loss / std
     loss = l2_loss + sparsity_coefficient * l1_loss
     return loss
 
@@ -110,7 +120,7 @@ feature_buffer = ActivationBuffer(10000, num_features)
 
 # cache activations
 cache_activations(args, model, train_loader, [activation_name], device)
-
+geometric_median_initialization = False
 # training loop
 for i_step in tqdm(range(steps)):
 
@@ -118,6 +128,12 @@ for i_step in tqdm(range(steps)):
     # TODO: why 3440
     activation_path = get_activation_path(args, activation_name, i_step)
     activations = torch.load(activation_path).to(device)
+
+
+    # initialize b_d with geometric median of activations
+    if geometric_median_initialization and i_step == 0:
+        dictionary.initialize_b_d_with_geometric_median(activations)
+        geometric_median_initialization = False
 
     # forward pass
     features = dictionary.encode(activations)
@@ -139,7 +155,6 @@ for i_step in tqdm(range(steps)):
         wandb.log(metrics)
         # Log number of tokens so far
         wandb.log({"Tokens": i_step * batch_size * context_length})
-        print(metrics)
         # append to file, not overwrite
         with open(f'{args.results_dir}/{wandb_run_name}_metrics_step_{i_step}.json', 'a') as fp:
             json.dump(metrics, fp)
