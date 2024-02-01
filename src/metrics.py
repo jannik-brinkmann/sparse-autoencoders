@@ -54,11 +54,52 @@ def FLR(
         return representation
 
     def zero_ablation_fn(representation):
-        return ablation_fn(representation, torch.zeros_like(representation))
+        if(isinstance(representation, tuple)):
+            second_value = representation[1]
+            internal_activation = torch.zeros_like(representation[0])
+            representation = (internal_activation, second_value)
+        else:
+            representation = torch.zeros_like(representation)
+        return representation
 
     def dict_ablation_fn(representation):
-        reconstruction = dictionary.forward(representation)
-        return ablation_fn(representation, reconstruction)
+        if(isinstance(representation, tuple)):
+            second_value = representation[1]
+            internal_activation = representation[0]
+        else:
+            internal_activation = representation
+
+        reconstruction = dictionary.forward(internal_activation)
+
+        if(isinstance(representation, tuple)):
+            return_value = (reconstruction, second_value)
+        else:
+            return_value = reconstruction
+
+        return return_value
+    
+        if(isinstance(value, tuple)):
+            second_value = value[1]
+            internal_activation = value[0]
+        else:
+            internal_activation = value
+        # Only ablate the feature direction up to the negative bias
+        # ie Only subtract when it activates above that negative bias.
+
+        # Rearrange to fit autoencoder
+        int_val = rearrange(internal_activation, 'b s h -> (b s) h')
+        # Run through the autoencoder
+        act = autoencoder.encode(int_val)
+        dictionary_for_this_autoencoder = autoencoder.get_learned_dict()
+        feature_direction = torch.outer(act[:, feature].squeeze(), dictionary_for_this_autoencoder[feature].squeeze())
+        batch, seq_len, hidden_size = internal_activation.shape
+        feature_direction = rearrange(feature_direction, '(b s) h -> b s h', b=batch, s=seq_len)
+        internal_activation -= feature_direction
+        if(isinstance(value, tuple)):
+            return_value = (internal_activation, second_value)
+        else:
+            return_value = internal_activation
+        return return_value
 
     def compute_loss(inputs_ids, logits):
         return torch.nn.CrossEntropyLoss()(
