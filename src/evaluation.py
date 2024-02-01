@@ -7,7 +7,7 @@ from transformers import PreTrainedModel
 
 from .autoencoder import Dict
 from .buffer import ActivationBuffer
-from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0
+from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance
 
 
 def evaluate(
@@ -21,7 +21,7 @@ def evaluate(
     
     # metrics = {k: [] for k in ["Loss Recovered", "FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency", "Feature Magnitude"]}
     metrics = {k: [] for k in [
-        "Metrics/CE Recovered", "Metrics/CE", "Metrics/CE Zero Ablated", "Metrics/CE SAE", "Metrics/CE-diff", "Metrics/FVU", "Metrics/L0",  "Metrics/L2 Norm (original activations)", "Metrics/L2 Ratio (reconstructed over original)", "Metrics/Effective L0",
+        "Metrics/CE Recovered", "Metrics/CE", "Metrics/CE Zero Ablated", "Metrics/CE SAE", "Metrics/CE-diff", "Metrics/FVU", "Metrics/L0",  "Metrics/L2 Norm (original activations)", "Metrics/L2 Ratio (reconstructed over original)", "Metrics/Effective L0", "Metrics/Dec Bias Median Distance", 
 
         "Losses/L1", "Losses/MSE", 
 
@@ -67,6 +67,7 @@ def evaluate(
                 metrics["Metrics/Effective L0"].append(Effective_L0(features))
                 metrics["Metrics/L2 Norm (original activations)"].append(l2_norm_original)
                 metrics["Metrics/L2 Ratio (reconstructed over original)"].append(l2_ratio)
+                metrics["Metrics/Dec Bias Median Distance"].append(dec_bias_median_distance(activations, dictionary))
 
                 metrics["Sparsity/Dead Features"].append(dead_features(feature_buffer))
                 metrics["Sparsity/Below 1e-5"].append(dead_features(feature_buffer, threshold=1e-5))

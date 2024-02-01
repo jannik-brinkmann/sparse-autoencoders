@@ -17,7 +17,6 @@ def FVU(x, x_hat):
     # return ratio of the MSE to the variance of the original activations
     return mse / variance
 
-
 def L0(features):
     return torch.norm(features, 0, dim=-1).mean()
 
@@ -33,6 +32,9 @@ def MSE(x, x_hat):
     """compute mean squared error between input activations and reconstructed activations"""
     return (x - x_hat).pow(2).mean()
 
+def dec_bias_median_distance(x, dictionary):
+    # measure the median distance between the decoder bias and the activations
+    return torch.norm(x - dictionary.b_d, dim=-1).median(0).values.mean()
 
 def FLR(
         activation_name: str, 
@@ -63,6 +65,7 @@ def FLR(
             logits[:,:-1,:].reshape(-1, logits.shape[-1]),
             inputs_ids[:,1:].reshape(-1)
         ).item()
+    
 
     with torch.no_grad():
 
@@ -90,7 +93,7 @@ def FLR(
 
 def dead_features(feature_buffer, threshold=0):
     # number of features that have not been activated across the 
-    return (feature_buffer.get().sum(dim=0) <= threshold).sum().item()
+    return ((feature_buffer.get().sum(dim=0) <= threshold).sum() / feature_buffer.get().shape[1]).item()
 
 def feature_frequency(feature_buffer):
     
