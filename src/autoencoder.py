@@ -37,13 +37,17 @@ class UntiedSAE(Dict, nn.Module):
         self.b_d = nn.Parameter(torch.zeros(self.activation_size))
 
         # set decoder weights to unit norm
-        self.W_d.data[:] = self.W_d / self.W_d.norm(dim=-1, keepdim=True)
+        norms = self.W_d.norm(dim=-1, keepdim=True)
+        self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
 
     def encode(self, x):
         x_bar = x - self.b_d
         return F.relu(x_bar @ self.W_e.T + self.b_e)
     
     def decode(self, f):
+        # Normalize the weights
+        norms = self.W_d.norm(dim=-1, keepdim=True)
+        self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
         return f @ self.W_d.T + self.b_d
     
     def forward(self, x):
