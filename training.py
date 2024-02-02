@@ -44,14 +44,14 @@ args.dataset_name_or_path = "Elriggs/openwebtext-100k"
 
 # dict
 # activation_name = "gpt_neox.layers.3.mlp"
-layer = 9
+layer = 8
 activation_name = f"transformer.h.{layer}"
 ratio = 4
-sparsity_coefficient = 5e-5
+sparsity_coefficient = 8e-3
 
 # optimizer
 gradient_accumulation_steps = 4
-learning_rate = 1e-4
+learning_rate = 4e-4
 steps = 10000
 weight_decay = 1e-1
 beta1 = 0.9
@@ -100,23 +100,25 @@ wandb.login(key=secrets["wandb_key"])
 wandb.init(entity=wandb_entity, project=wandb_project, name=wandb_run_name)
 
 # optimizer
-optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate, betas=(beta1, beta2), weight_decay=weight_decay)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, steps, 2e-6)
+# optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate, betas=(beta1, beta2), weight_decay=weight_decay)
+optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate)
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, steps, 2e-6)
 def compute_loss(activations, features, reconstructions, normalize=False):
     l2_loss = (activations - reconstructions).pow(2).mean()
-    # l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
-
     l1_loss = torch.norm(features, 1, dim=-1).mean()
+
+    # l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
     if(normalize):
-        variance = (activations - activations.mean(dim=0)).pow(2).mean()
+        variance = (activations**2).sum(dim=-1, keepdim=True).sqrt().mean()
         std = variance.sqrt()
         l2_loss = l2_loss / variance
         l1_loss = l1_loss / std
+        print(f"{l1_loss/l2_loss:.2f}")
     loss = l2_loss + sparsity_coefficient * l1_loss
     return loss
 
 # activation buffer
-feature_buffer = ActivationBuffer(10000, num_features)
+feature_buffer = ActivationBuffer(1000000, num_features)
 
 # cache activations
 cache_activations(args, model, train_loader, [activation_name], device)
@@ -143,9 +145,10 @@ for i_step in tqdm(range(steps)):
     loss = compute_loss(activations, features, reconstructions)
 
     # backward pass
+    optimizer.zero_grad()
     loss.backward()
     optimizer.step()
-    scheduler.step()
+    # scheduler.step()
 
     # cache features activations
     feature_buffer.push(features.cpu())
