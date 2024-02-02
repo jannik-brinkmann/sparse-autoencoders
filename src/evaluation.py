@@ -25,7 +25,7 @@ def evaluate(
 
         "Losses/L1", "Losses/MSE", 
 
-        "Sparsity/Dead Features", "Sparsity/Below 1e-5", "Sparsity/Below 1e-3", "Sparsity/Below 1e-2", "Sparsity/Below 1e-1", "Sparsity/Feature Frequency",
+        "Sparsity/Dead Features", "Sparsity/Feature Frequency",
         ]}
     for idx, batch in enumerate(tqdm(data_loader)):
         if(idx == 20):
@@ -70,10 +70,6 @@ def evaluate(
                 metrics["Metrics/Dec Bias Median Distance"].append(dec_bias_median_distance(activations, dictionary))
 
                 metrics["Sparsity/Dead Features"].append(dead_features(feature_buffer))
-                metrics["Sparsity/Below 1e-5"].append(dead_features(feature_buffer, threshold=1e-5))
-                metrics["Sparsity/Below 1e-3"].append(dead_features(feature_buffer, threshold=1e-3))
-                metrics["Sparsity/Below 1e-2"].append(dead_features(feature_buffer, threshold=1e-2))
-                metrics["Sparsity/Below 1e-1"].append(dead_features(feature_buffer, threshold=1e-1))
                 metrics["Sparsity/Feature Frequency"].append(feature_frequency(feature_buffer))
                 # metrics["Feature Magnitude"].append(feature_magnitude(feature_buffer))
 
