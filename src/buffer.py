@@ -34,12 +34,16 @@ class ActivationBuffer:
             # If buffer has enough space, append the batch
             self.buffer[self.current_size:self.current_size + batch_size] = batch
             self.current_size += batch_size
-        else:
-            # Calculate the space needed and shift elements
-            shift = self.current_size + batch_size - self.n_samples
-            self.buffer[:self.current_size - shift] = self.buffer[shift:self.current_size].clone()
-            self.buffer[self.current_size - shift:self.n_samples] = batch
-            self.current_size = self.n_samples
+        # else:
+        #     # Calculate the space needed and shift elements
+        #     shift = self.current_size + batch_size - self.n_samples
+        #     self.buffer[:self.current_size - shift] = self.buffer[shift:self.current_size].clone()
+        #     self.buffer[self.current_size - shift:self.n_samples] = batch
+        #     self.current_size = self.n_samples
+        else: # loop back to the beginning (& ignore the unused end space)
+            # Overwrite the first batch_size elements
+            self.buffer[:batch_size] = batch
+            self.current_size = batch_size
 
     def get(self):
         """
