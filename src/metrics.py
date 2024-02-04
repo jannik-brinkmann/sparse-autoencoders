@@ -17,10 +17,12 @@ def FVU(x, x_hat):
     # return ratio of the MSE to the variance of the original activations
     return mse / variance
 
-
 def L0(features):
     return torch.norm(features, 0, dim=-1).mean()
 
+def Effective_L0(features):
+    # Divide the L1 of a datpoint by the max of each datapoint
+    return (torch.norm(features, 1, dim=-1) / features.max(dim=-1)[0]).nanmean()
 
 def L1(features):
     return torch.norm(features, 1, dim=-1).mean()
@@ -30,6 +32,9 @@ def MSE(x, x_hat):
     """compute mean squared error between input activations and reconstructed activations"""
     return (x - x_hat).pow(2).mean()
 
+def dec_bias_median_distance(x, dictionary):
+    # measure the median distance between the decoder bias and the activations
+    return torch.norm(x - dictionary.b_d, dim=-1).median(0).values.mean()
 
 def FLR(
         activation_name: str, 
@@ -49,17 +54,59 @@ def FLR(
         return representation
 
     def zero_ablation_fn(representation):
-        return ablation_fn(representation, torch.zeros_like(representation))
+        if(isinstance(representation, tuple)):
+            second_value = representation[1]
+            internal_activation = torch.zeros_like(representation[0])
+            representation = (internal_activation, second_value)
+        else:
+            representation = torch.zeros_like(representation)
+        return representation
 
     def dict_ablation_fn(representation):
-        reconstruction = dictionary.forward(representation)
-        return ablation_fn(representation, reconstruction)
+        if(isinstance(representation, tuple)):
+            second_value = representation[1]
+            internal_activation = representation[0]
+        else:
+            internal_activation = representation
+
+        reconstruction = dictionary.forward(internal_activation)
+
+        if(isinstance(representation, tuple)):
+            return_value = (reconstruction, second_value)
+        else:
+            return_value = reconstruction
+
+        return return_value
+    
+        if(isinstance(value, tuple)):
+            second_value = value[1]
+            internal_activation = value[0]
+        else:
+            internal_activation = value
+        # Only ablate the feature direction up to the negative bias
+        # ie Only subtract when it activates above that negative bias.
+
+        # Rearrange to fit autoencoder
+        int_val = rearrange(internal_activation, 'b s h -> (b s) h')
+        # Run through the autoencoder
+        act = autoencoder.encode(int_val)
+        dictionary_for_this_autoencoder = autoencoder.get_learned_dict()
+        feature_direction = torch.outer(act[:, feature].squeeze(), dictionary_for_this_autoencoder[feature].squeeze())
+        batch, seq_len, hidden_size = internal_activation.shape
+        feature_direction = rearrange(feature_direction, '(b s) h -> b s h', b=batch, s=seq_len)
+        internal_activation -= feature_direction
+        if(isinstance(value, tuple)):
+            return_value = (internal_activation, second_value)
+        else:
+            return_value = internal_activation
+        return return_value
 
     def compute_loss(inputs_ids, logits):
         return torch.nn.CrossEntropyLoss()(
             logits[:,:-1,:].reshape(-1, logits.shape[-1]),
             inputs_ids[:,1:].reshape(-1)
         ).item()
+    
 
     with torch.no_grad():
 
@@ -80,13 +127,14 @@ def FLR(
         loss_zero_ablation = compute_loss(input_ids, logits_zero_ablation)
         loss_dict_reconstruction = compute_loss(input_ids, logits_dict_reconstruction)
 
-        FLR = (loss_dict_reconstruction - loss_zero_ablation) / (loss - loss_zero_ablation)
-        return FLR
+        flr = (loss_dict_reconstruction - loss_zero_ablation) / (loss - loss_zero_ablation)
+        ce_diff = loss_dict_reconstruction - loss
+        return flr, loss, loss_zero_ablation, loss_dict_reconstruction, ce_diff
     
 
-def dead_features(feature_buffer):
+def dead_features(feature_buffer, threshold=0):
     # number of features that have not been activated across the 
-    return (feature_buffer.get().sum(dim=0) == 0).sum().item()
+    return ((feature_buffer.get().sum(dim=0) <= threshold).sum() / feature_buffer.get().shape[1]).item()
 
 def feature_frequency(feature_buffer):
     
