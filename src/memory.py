@@ -2,7 +2,7 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from memory_profiler import memory_usage
 import csv
-from src.utils import chunk_and_tokenize
+from utils import chunk_and_tokenize
 
 
 if __name__ == '__main__':
@@ -15,7 +15,8 @@ if __name__ == '__main__':
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAMES[0])  # Assumes that tokenization is the same for all models!
     dataset = load_dataset(DATASET_NAME, split="train")
-    tokenized_dataset, _ = chunk_and_tokenize(dataset, tokenizer, max_length=CONTEXT_LENGTH, num_proc=1)
+    tokenized_dataset, _ = chunk_and_tokenize(dataset, tokenizer, max_length=CONTEXT_LENGTH)  # use num_proc=1 if this does not work
+
 
     with open(OUTPUT_FILE, "w") as f:
         csv_writer = csv.writer(f)

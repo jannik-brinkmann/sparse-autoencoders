@@ -1,0 +1,8 @@
+Model_Name,Max_Tokens
+EleutherAI/pythia-70M-deduped,26
+EleutherAI/pythia-160M-deduped,8
+EleutherAI/pythia-410M-deduped,1
+EleutherAI/pythia-1B-deduped,0
+EleutherAI/pythia-1.4B-deduped,0
+EleutherAI/pythia-2.8B-deduped,0
+EleutherAI/pythia-6.9B-deduped,0
