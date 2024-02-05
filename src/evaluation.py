@@ -28,7 +28,7 @@ def evaluate(
         "Sparsity/Dead Features", "Sparsity/Feature Frequency",
         ]}
     for idx, batch in enumerate(tqdm(data_loader)):
-        if(idx == 20):
+        if(idx == 2):
             break
         input_ids = batch["input_ids"].to(device)
 

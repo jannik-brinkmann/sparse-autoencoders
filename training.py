@@ -47,7 +47,8 @@ args.dataset_name_or_path = "Elriggs/openwebtext-100k"
 layer = 8
 activation_name = f"transformer.h.{layer}"
 ratio = 4
-sparsity_coefficient = 8e-3
+# sparsity_coefficient = 3e-2
+sparsity_coefficient = 3e-5
 
 # optimizer
 gradient_accumulation_steps = 4
@@ -61,6 +62,7 @@ grad_clip = 1.0
 # training
 batch_size = 32
 context_length = 256
+tokens_per_batch = context_length*batch_size
 # ------
 config_keys = [
     k
@@ -78,8 +80,8 @@ tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
 train_loader, test_loader = get_dataloader(args.dataset_name_or_path, tokenizer, batch_size, context_length)
 # print number of tokens in train & test_loader
 print(train_loader)
-print(f"# of Tokens: Train {len(train_loader)*context_length*batch_size/1e6:.2f} M")
-print(f"# of Tokens: Test {len(test_loader)*context_length*batch_size/1e6:.2f} M")
+print(f"# of Tokens: Train {len(train_loader)*tokens_per_batch/1e6:.2f} M")
+print(f"# of Tokens: Test {len(test_loader)*tokens_per_batch/1e6:.2f} M")
 
 # sparse autoencoder
 activation_size = get_activation_size(activation_name, model, tokenizer, device)
@@ -103,11 +105,63 @@ wandb.init(entity=wandb_entity, project=wandb_project, name=wandb_run_name)
 # optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate, betas=(beta1, beta2), weight_decay=weight_decay)
 optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate)
 # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, steps, 2e-6)
+
+def ghost_gradients_loss(activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
+    # ghost protocol (from Joseph Bloom: https://github.com/jbloomAus/mats_sae_training/blob/98e4f1bb416b33d49bef1acc676cc3b1e9ed6441/sae_training/sparse_autoencoder.py#L105)
+    
+    # 1.
+    residual = activations - reconstructions
+    l2_norm_residual = torch.norm(residual, dim=-1)
+    
+    # 2.
+    # feature_acts_dead_neurons_only = torch.exp(feature_acts[:, dead_neuron_mask])
+    feature_acts_dead_neurons_only = torch.exp(pre_activations[:, dead_features_mask])
+    ghost_out =  feature_acts_dead_neurons_only @ dictionary.W_d[:,dead_features_mask].T
+    l2_norm_ghost_out = torch.norm(ghost_out, dim = -1)
+    # print(f"preactivations: {pre_activations.shape}")
+    # print(f"dead_features_mask: {dead_features_mask.shape}")
+    # print(f"feature_acts_dead_neurons_only: {feature_acts_dead_neurons_only.shape}")
+    # print(f"dictionary.W_d[:,dead_features_mask].T: {dictionary.W_d[:,dead_features_mask].T.shape}")
+    # print(f"ghost_out: {ghost_out.shape}")
+    # norm_scaling_factor = (l2_norm_residual / (l2_norm_ghost_out* 2))[:, None].detach() # Treat norm scaling factor as a constant (gradient-wise)
+    # add a small value to avoid division by zero
+    # 1. Also try just removing bad datapoint (0 norm for ghost_out)
+    # 2. Add a small constant to avoid division by zero
+    nonzero_norm_datapoints = l2_norm_ghost_out > -1
+    # norm_scaling_factor = (l2_norm_residual[nonzero_norm_datapoints] / (l2_norm_ghost_out[nonzero_norm_datapoints]*2))[:, None].detach() # Treat norm scaling factor as a constant (gradient-wise)
+    # norm_scaling_factor = (l2_norm_residual / ((l2_norm_ghost_out + 1e-30)*2))[:, None].detach() # Treat norm scaling factor as a constant (gradient-wise)
+    # norm_scaling_factor = (l2_norm_residual[:, None].mean()/ l2_norm_ghost_out[:, None].mean()).detach()
+    norm_scaling_factor = (l2_norm_residual / ((l2_norm_ghost_out + 1e-30)*2))[:, None].detach() # Treat norm scaling factor as a constant (gradient-wise)
+    # norm_scaling_factor = (l2_norm_residual / ((l2_norm_ghost_out)*2))[:, None].detach() # Treat norm scaling factor as a constant (gradient-wise)
+    ghost_out = ghost_out[nonzero_norm_datapoints]*norm_scaling_factor
+    # ghost_out = ghost_out[nonzero_norm_datapoints]*l2_norm_residual[:, None].detach()/2/
+    # Verify the ghost_out norm is 1/2 of the l2 norm of the residual
+    print("l2_norm_residual", l2_norm_residual)
+    print("l2_norm_ghost_out", torch.norm(ghost_out, dim=-1))
+    
+    residual = residual[nonzero_norm_datapoints]
+    # 3. 
+    # If normalzing loss by variance
+    mse_loss_ghost_resid = (
+        torch.pow((ghost_out - residual.float()), 2) / (residual**2).sum(dim=-1, keepdim=True).sqrt()
+    ).mean()
+    # mse_loss_ghost_resid = (ghost_out - residual).pow(2).mean()
+    mse_rescaling_factor = (mse_loss / mse_loss_ghost_resid).detach() # Treat mse rescaling factor as a constant (gradient-wise)
+    print(f"Ghost Loss: {mse_loss_ghost_resid:.2f}")
+    # print("mse_loss_ghost_resid (earlier)", mse_loss_ghost_resid)
+    mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid
+    # print("l2_norm_residual", l2_norm_residual)
+    # print("l2_norm_ghost_out", l2_norm_ghost_out)
+    # print("norm_scaling_factor", norm_scaling_factor)
+    # print("mse_rescaling_factor", mse_rescaling_factor)
+    print(f" MSE Loss: {mse_loss:.2f}")
+    return mse_loss_ghost_resid
+    
 def compute_loss(activations, features, reconstructions, normalize=False):
-    l2_loss = (activations - reconstructions).pow(2).mean()
+    # l2_loss = (activations - reconstructions).pow(2).mean()
     l1_loss = torch.norm(features, 1, dim=-1).mean()
 
-    # l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
+    l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
     if(normalize):
         variance = (activations**2).sum(dim=-1, keepdim=True).sqrt().mean()
         std = variance.sqrt()
@@ -115,11 +169,15 @@ def compute_loss(activations, features, reconstructions, normalize=False):
         l1_loss = l1_loss / std
         print(f"{l1_loss/l2_loss:.2f}")
     loss = l2_loss + sparsity_coefficient * l1_loss
-    return loss
+    return loss, l2_loss, l1_loss
 
 # activation buffer
-feature_buffer = ActivationBuffer(1000000, num_features)
-
+feature_buffer = ActivationBuffer(10000, num_features)
+# num_datapoints to refer back to = 2e6 tokens/batch_size
+num_look_back_datapoints = int(2e6 / tokens_per_batch)
+print(f"Number of look back datapoints: {num_look_back_datapoints}")
+nonzero_buffer = ActivationBuffer(num_look_back_datapoints, num_features)
+# nonzero_buffer = ActivationBuffer(10000, num_features)
 # cache activations
 cache_activations(args, model, train_loader, [activation_name], device)
 geometric_median_initialization = False
@@ -138,11 +196,28 @@ for i_step in tqdm(range(steps)):
         geometric_median_initialization = False
 
     # forward pass
-    features = dictionary.encode(activations)
+    pre_activations = dictionary.encode_pre_activation(activations)
+    features = torch.nn.functional.relu(pre_activations)
     reconstructions = dictionary.decode(features)
 
     # compute loss
-    loss = compute_loss(activations, features, reconstructions)
+    loss, l2_loss, l1_loss = compute_loss(activations, features, reconstructions)
+
+    # Update dead_features_mask
+    nonzero_buffer.push(features.detach().sum(dim=0))
+    # Ghost Gradients
+    ghost_gradients = True
+    # ghost_gradients = False
+    # Need to check 
+    # 1. enough datapoints (ie 2M tokens)
+    # 2. any dead features
+    dead_features_mask = nonzero_buffer.get().sum(0) == 0
+    print(f"Dead Features: {dead_features_mask.sum()}")
+    if(ghost_gradients and nonzero_buffer.full):
+        if(dead_features_mask.any()):
+            loss += ghost_gradients_loss(activations, reconstructions, pre_activations, dead_features_mask, l2_loss)
+            
+
 
     # backward pass
     optimizer.zero_grad()
@@ -154,7 +229,7 @@ for i_step in tqdm(range(steps)):
     feature_buffer.push(features.cpu())
 
     if i_step % evaluation_interval == 0:
-        metrics = evaluate(activation_name, test_loader, dictionary, feature_buffer, model, device)
+        metrics = evaluate(activation_name, test_loader, dictionary, nonzero_buffer, model, device)
         wandb.log(metrics)
         # Log number of tokens so far
         wandb.log({"Tokens": i_step * batch_size * context_length})
