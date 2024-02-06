@@ -44,11 +44,11 @@ args.dataset_name_or_path = "Elriggs/openwebtext-100k"
 
 # dict
 # activation_name = "gpt_neox.layers.3.mlp"
-layer = 8
+layer = 1
 activation_name = f"transformer.h.{layer}"
 ratio = 4
-# sparsity_coefficient = 3e-2
-sparsity_coefficient = 3e-5
+sparsity_coefficient = 3e-3
+# sparsity_coefficient = 3e-5
 
 # optimizer
 gradient_accumulation_steps = 4
@@ -60,7 +60,7 @@ beta2 = 0.95
 grad_clip = 1.0
 
 # training
-batch_size = 32
+batch_size = 16
 context_length = 256
 tokens_per_batch = context_length*batch_size
 # ------
@@ -102,8 +102,31 @@ wandb.login(key=secrets["wandb_key"])
 wandb.init(entity=wandb_entity, project=wandb_project, name=wandb_run_name)
 
 # optimizer
+class ConstrainedAdamW(torch.optim.AdamW):
+    """
+    A variant of Adam where some of the parameters are constrained to have unit norm.
+    From Sam Marks
+    """
+    def __init__(self, params, constrained_param, lr):
+        super().__init__(params, lr=lr)
+        self.constrained_param = constrained_param
+    
+    def step(self, closure=None):
+        with torch.no_grad():
+            p = self.constrained_param
+            normed_p = p / p.norm(dim=-1, keepdim=True)
+            # project away the parallel component of the gradient
+            p.grad -= (p.grad * normed_p).sum(dim=-1, keepdim=True) * normed_p
+        super().step(closure=closure)
+        with torch.no_grad():
+            p = self.constrained_param
+
+            # renormalize the constrained parameters
+            p /= p.norm(dim=-1, keepdim=True)
+
 # optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate, betas=(beta1, beta2), weight_decay=weight_decay)
-optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate)
+# optimizer = torch.optim.AdamW(dictionary.parameters(), lr=learning_rate)
+optimizer = ConstrainedAdamW(dictionary.parameters(), constrained_param=dictionary.W_d, lr=learning_rate)
 # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, steps, 2e-6)
 
 def ghost_gradients_loss(activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
@@ -142,10 +165,10 @@ def ghost_gradients_loss(activations, reconstructions, pre_activations, dead_fea
     residual = residual[nonzero_norm_datapoints]
     # 3. 
     # If normalzing loss by variance
-    mse_loss_ghost_resid = (
-        torch.pow((ghost_out - residual.float()), 2) / (residual**2).sum(dim=-1, keepdim=True).sqrt()
-    ).mean()
-    # mse_loss_ghost_resid = (ghost_out - residual).pow(2).mean()
+    # mse_loss_ghost_resid = (
+    #     torch.pow((ghost_out - residual.float()), 2) / (residual**2).sum(dim=-1, keepdim=True).sqrt()
+    # ).mean()
+    mse_loss_ghost_resid = (ghost_out - residual).pow(2).mean()
     mse_rescaling_factor = (mse_loss / mse_loss_ghost_resid).detach() # Treat mse rescaling factor as a constant (gradient-wise)
     print(f"Ghost Loss: {mse_loss_ghost_resid:.2f}")
     # print("mse_loss_ghost_resid (earlier)", mse_loss_ghost_resid)
@@ -158,10 +181,10 @@ def ghost_gradients_loss(activations, reconstructions, pre_activations, dead_fea
     return mse_loss_ghost_resid
     
 def compute_loss(activations, features, reconstructions, normalize=False):
-    # l2_loss = (activations - reconstructions).pow(2).mean()
+    l2_loss = (activations - reconstructions).pow(2).mean()
     l1_loss = torch.norm(features, 1, dim=-1).mean()
 
-    l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
+    # l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
     if(normalize):
         variance = (activations**2).sum(dim=-1, keepdim=True).sqrt().mean()
         std = variance.sqrt()
@@ -206,14 +229,14 @@ for i_step in tqdm(range(steps)):
     # Update dead_features_mask
     nonzero_buffer.push(features.detach().sum(dim=0))
     # Ghost Gradients
-    ghost_gradients = True
-    # ghost_gradients = False
+    # ghost_gradients = True
+    ghost_gradients = False
     # Need to check 
     # 1. enough datapoints (ie 2M tokens)
     # 2. any dead features
-    dead_features_mask = nonzero_buffer.get().sum(0) == 0
-    print(f"Dead Features: {dead_features_mask.sum()}")
     if(ghost_gradients and nonzero_buffer.full):
+        dead_features_mask = nonzero_buffer.get().sum(0) == 0
+        print(f"Dead Features: {dead_features_mask.sum()}")
         if(dead_features_mask.any()):
             loss += ghost_gradients_loss(activations, reconstructions, pre_activations, dead_features_mask, l2_loss)
             
@@ -237,4 +260,6 @@ for i_step in tqdm(range(steps)):
         with open(f'{args.results_dir}/{wandb_run_name}_metrics_step_{i_step}.json', 'a') as fp:
             json.dump(metrics, fp)
 
+# Save the model
+torch.save(dictionary.state_dict(), f'{args.results_dir}/{wandb_run_name}_model.pt')
 wandb.finish()
