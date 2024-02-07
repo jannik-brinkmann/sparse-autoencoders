@@ -47,20 +47,21 @@ args.dataset_name_or_path = "Elriggs/openwebtext-100k"
 layer = 1
 activation_name = f"transformer.h.{layer}"
 ratio = 4
-sparsity_coefficient = 3e-3
+sparsity_coefficient = 6e-3 # Ghost gradients need to be 2x more
+# sparsity_coefficient = 3e-3
 # sparsity_coefficient = 3e-5
 
 # optimizer
 gradient_accumulation_steps = 4
 learning_rate = 4e-4
-steps = 10000
+steps = 50000
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0
 
 # training
-batch_size = 16
+batch_size = 32
 context_length = 256
 tokens_per_batch = context_length*batch_size
 # ------
@@ -159,8 +160,8 @@ def ghost_gradients_loss(activations, reconstructions, pre_activations, dead_fea
     ghost_out = ghost_out[nonzero_norm_datapoints]*norm_scaling_factor
     # ghost_out = ghost_out[nonzero_norm_datapoints]*l2_norm_residual[:, None].detach()/2/
     # Verify the ghost_out norm is 1/2 of the l2 norm of the residual
-    print("l2_norm_residual", l2_norm_residual)
-    print("l2_norm_ghost_out", torch.norm(ghost_out, dim=-1))
+    # print("l2_norm_residual", l2_norm_residual)
+    # print("l2_norm_ghost_out", torch.norm(ghost_out, dim=-1))
     
     residual = residual[nonzero_norm_datapoints]
     # 3. 
@@ -170,14 +171,14 @@ def ghost_gradients_loss(activations, reconstructions, pre_activations, dead_fea
     # ).mean()
     mse_loss_ghost_resid = (ghost_out - residual).pow(2).mean()
     mse_rescaling_factor = (mse_loss / mse_loss_ghost_resid).detach() # Treat mse rescaling factor as a constant (gradient-wise)
-    print(f"Ghost Loss: {mse_loss_ghost_resid:.2f}")
+    # print(f"Ghost Loss: {mse_loss_ghost_resid:.2f}")
     # print("mse_loss_ghost_resid (earlier)", mse_loss_ghost_resid)
     mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid
     # print("l2_norm_residual", l2_norm_residual)
     # print("l2_norm_ghost_out", l2_norm_ghost_out)
     # print("norm_scaling_factor", norm_scaling_factor)
     # print("mse_rescaling_factor", mse_rescaling_factor)
-    print(f" MSE Loss: {mse_loss:.2f}")
+    # print(f" MSE Loss: {mse_loss:.2f}")
     return mse_loss_ghost_resid
     
 def compute_loss(activations, features, reconstructions, normalize=False):
@@ -229,14 +230,13 @@ for i_step in tqdm(range(steps)):
     # Update dead_features_mask
     nonzero_buffer.push(features.detach().sum(dim=0))
     # Ghost Gradients
-    # ghost_gradients = True
-    ghost_gradients = False
+    ghost_gradients = True
+    # ghost_gradients = False
     # Need to check 
     # 1. enough datapoints (ie 2M tokens)
     # 2. any dead features
     if(ghost_gradients and nonzero_buffer.full):
         dead_features_mask = nonzero_buffer.get().sum(0) == 0
-        print(f"Dead Features: {dead_features_mask.sum()}")
         if(dead_features_mask.any()):
             loss += ghost_gradients_loss(activations, reconstructions, pre_activations, dead_features_mask, l2_loss)
             
