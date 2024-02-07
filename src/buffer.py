@@ -20,6 +20,7 @@ class ActivationBuffer:
         self.n_features = n_features
         self.buffer = torch.empty((n_samples, n_features), dtype=dtype)
         self.current_size = 0
+        self.full = False
 
     def push(self, batch: torch.Tensor):
         """
@@ -44,6 +45,7 @@ class ActivationBuffer:
             # Overwrite the first batch_size elements
             self.buffer[:batch_size] = batch
             self.current_size = batch_size
+            self.full = True
 
     def get(self):
         """
