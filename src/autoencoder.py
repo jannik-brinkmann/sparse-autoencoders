@@ -46,7 +46,9 @@ class UntiedSAE(Dict, nn.Module):
     
     def encode(self, x):
         x_bar = x - self.b_d
-        return F.relu(x_bar @ self.W_e.T + self.b_e)
+        pre_activation = x_bar @ self.W_e.T + self.b_e
+        post_activation = F.relu(pre_activation)
+        return pre_activation, post_activation 
     
     def decode(self, f):
         # Normalize the weights

@@ -29,7 +29,7 @@ class TrainingConfig:
     steps: int = 10
     
     # Ghost Grads
-    use_ghost_grads = False
+    use_ghost_grads = True
     
     # I/O
     run_id: str = ""

@@ -72,16 +72,42 @@ class Trainer:
         l2_loss = l2_loss / variance
         l1_loss = l1_loss / std
         loss = l2_loss + self.config.sparsity_coefficient * l1_loss
-        return loss
+        return loss, l2_loss, l1_loss
+    
+    def ghost_gradients_loss(self, activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
+        # ghost protocol (from Joseph Bloom: https://github.com/jbloomAus/mats_sae_training/blob/98e4f1bb416b33d49bef1acc676cc3b1e9ed6441/sae_training/sparse_autoencoder.py#L105)
+        eps = 1e-30
+        
+        # 1.
+        residual = (activations - reconstructions).detach()
+        l2_norm_residual = torch.norm(residual, dim=-1)
+        
+        # 2.
+        # feature_acts_dead_neurons_only = torch.exp(feature_acts[:, dead_neuron_mask])
+        feature_acts_dead_neurons_only = torch.exp(pre_activations[:, dead_features_mask])
+        ghost_out =  feature_acts_dead_neurons_only @ self.dict.W_d[:,dead_features_mask].T
+        l2_norm_ghost_out = torch.norm(ghost_out, dim = -1)
+        # Treat norm scaling factor as a constant (gradient-wise)
+        norm_scaling_factor = (l2_norm_residual / ((l2_norm_ghost_out + eps)*2))[:, None].detach() 
+        ghost_out = ghost_out*norm_scaling_factor
+        # 3. 
+        # If batch normalization
+        # mse_loss_ghost_resid = (
+        #     torch.pow((ghost_out - residual.float()), 2) / (residual**2).sum(dim=-1, keepdim=True).sqrt()
+        # ).mean()
+        mse_loss_ghost_resid = (ghost_out - residual).pow(2).mean()
+        mse_rescaling_factor = (mse_loss / mse_loss_ghost_resid + eps).detach() # Treat mse rescaling factor as a constant (gradient-wise)
+        mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid
+        return mse_loss_ghost_resid
         
     def step(self, activations: torch.Tensor):
         
         # forward pass
-        features = self.dict.encode(activations)
+        pre_activations, features = self.dict.encode(activations)
         reconstructions = self.dict.decode(features)
         
         # compute loss
-        loss = self.compute_loss(activations, features, reconstructions)
+        loss, l2_loss, l1_loss = self.compute_loss(activations, features, reconstructions)
         
         # backward pass
         self.optimizer.zero_grad()
@@ -92,6 +118,13 @@ class Trainer:
         # cache feature activations
         self.feature_cache.push(features.detach().sum(dim=0, keepdim=True).cpu())
         
+        # ghost gradients
+        if self.config.use_ghost_grads:
+            dead_feature_mask = self.feature_cache.get() == 0
+            if dead_feature_mask.any():
+                loss += self.ghost_gradients_loss(activations, reconstructions, pre_activations, dead_feature_mask, l2_loss)
+
+            
         # log training statistics
         if self.config.use_wandb:
             wandb.log({
