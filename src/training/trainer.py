@@ -6,6 +6,7 @@ import wandb
 from .config import TrainingConfig
 from ..autoencoder import UntiedSAE
 from .cache import FeatureCache
+from .optimizer import ConstrainedAdamW
 from .utils import save_config
 
 
@@ -41,7 +42,7 @@ class Trainer:
         )
         
         # initialize the optimizer and scheduler for training
-        self.optimizer = torch.optim.AdamW(
+        self.optimizer = ConstrainedAdamW(
             params=self.dict.parameters(), 
             lr=config.lr
         )
