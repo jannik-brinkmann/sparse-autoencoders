@@ -62,6 +62,8 @@ def training(configs):
     # generate a UUID for the training run
     run_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
     configs = [replace(c, uuid=run_id) for c in configs]
+    run_dir = os.path.join(config.output_dir, run_id)
+    os.makedirs(run_dir, exist_ok=True)
     
     # determine the number of autoencoders that should be trained in parallel
     n_autoencoders = len(configs)

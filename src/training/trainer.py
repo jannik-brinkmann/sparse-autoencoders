@@ -19,7 +19,8 @@ class Trainer:
     ) -> None:
         super().__init__()
         self.config = config
-        self.checkpoint_dir = os.path.join(config.output_dir, f"{config.uuid}_{config.pid}")
+        run_dir = os.path.join(config.output_dir, config.run_id)
+        self.checkpoint_dir = os.path.join(run_dir, config.pid)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         save_config(self.config, self.checkpoint_dir)
         
@@ -43,7 +44,8 @@ class Trainer:
         
         # initialize the optimizer and scheduler for training
         self.optimizer = ConstrainedAdamW(
-            params=self.dict.parameters(), 
+            params=self.dict.parameters(),
+            constrained_param=self.dict.W_d,
             lr=config.lr
         )
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -60,7 +62,7 @@ class Trainer:
                 group=self.config.uuid
             )
         
-    def compute_loss(self, activations, features, reconstructions, sparsity_coefficient=0.0001):
+    def compute_loss(self, activations, features, reconstructions):
         l2_loss = (activations - reconstructions).pow(2).mean()
         l1_loss = torch.norm(features, 1, dim=-1).mean()
 
@@ -69,7 +71,7 @@ class Trainer:
         std = variance.sqrt()
         l2_loss = l2_loss / variance
         l1_loss = l1_loss / std
-        loss = l2_loss + sparsity_coefficient * l1_loss
+        loss = l2_loss + self.config.sparsity_coefficient * l1_loss
         return loss
         
     def step(self, activations: torch.Tensor):
