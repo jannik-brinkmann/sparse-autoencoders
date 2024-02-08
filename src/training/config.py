@@ -32,7 +32,7 @@ class TrainingConfig:
     use_ghost_grads = False
     
     # I/O
-    uuid: str = ""
+    run_id: str = ""
     pid: str = ""
     output_dir: str = "outputs"
     checkpoint_interval: int = 32

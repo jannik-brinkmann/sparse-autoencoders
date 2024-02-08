@@ -61,7 +61,7 @@ def training(configs):
     
     # generate a UUID for the training run
     run_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
-    configs = [replace(c, uuid=run_id) for c in configs]
+    configs = [replace(c, run_id=run_id) for c in configs]
     run_dir = os.path.join(config.output_dir, run_id)
     os.makedirs(run_dir, exist_ok=True)
     
@@ -84,7 +84,7 @@ def training(configs):
         
     # generate activations and send them to the worker processes
     activation_loader = CachedActivationLoader(config)
-    for i in range(3440):
+    for i in range(10):
         activations = activation_loader[i]
         for q in queues:
             semaphore.acquire()

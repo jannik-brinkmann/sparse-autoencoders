@@ -59,7 +59,7 @@ class Trainer:
                 entity=self.config.wandb_entity,
                 project=self.config.wandb_project, 
                 name=self.config.wandb_run_name,
-                group=self.config.uuid
+                group=self.config.run_id
             )
         
     def compute_loss(self, activations, features, reconstructions):
@@ -90,10 +90,14 @@ class Trainer:
         self.scheduler.step()
         
         # cache feature activations
-        self.feature_cache.push(features.sum(dim=0, keepdim=True).cpu())
+        self.feature_cache.push(features.detach().sum(dim=0, keepdim=True).cpu())
         
+        # log training statistics
         if self.config.use_wandb:
-            wandb.log({"Train/Loss": loss})
+            wandb.log({
+                "Train/Loss": loss,
+                "Train/Dead Features": torch.sum(self.feature_cache.get() == 0)
+            })
             
         
     def save_weights(self, filename="checkpoint.pt"):

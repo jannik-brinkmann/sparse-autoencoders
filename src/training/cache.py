@@ -16,9 +16,9 @@ class FeatureCache:
         """
         self.cache = torch.empty((cache_size, dict_size), dtype=dtype)
         
-    def __get__(self):
-        return self.cache
-
     def push(self, feature_activations: torch.Tensor):
         assert feature_activations.shape == (1, self.cache.size(1))
         self.cache = torch.cat((self.cache[1:], feature_activations))
+        
+    def get(self):
+        return self.cache.sum(dim=0)
