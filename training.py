@@ -174,24 +174,27 @@ def compute_loss(activations, features, reconstructions, normalize=False):
 # activation buffer
 num_look_back_datapoints = int(args.dead_feature_threshold/ tokens_per_batch)
 nonzero_buffer = ActivationBuffer(num_look_back_datapoints, num_features)
-print(train_loader)
-print(dir(train_loader))
-print(len(train_loader))
-print("---------------------------------")
+
 # cache activations
 cache_activations(args, model, train_loader, [activation_name], device)
-geometric_median_initialization = False
+
+geometric_median_initialization = True
+# initialize b_d with geometric median of activations
+# TODO: Untested, but equivalent code as Joseph Bloom's
+if geometric_median_initialization:
+    activation_path = get_activation_path(args, activation_name, 0)
+    activations = torch.load(activation_path).to(device)
+    dictionary.initialize_b_d_with_geometric_median(activations)
+
+train_kl = True
+kl_alpha = None
+
 # training loop
-for i_step in tqdm(range(len(train_loader))):
+for i_step, batch in tqdm(enumerate(train_loader)):
+
     # get activations
     activation_path = get_activation_path(args, activation_name, i_step)
     activations = torch.load(activation_path).to(device)
-
-    # initialize b_d with geometric median of activations
-    # TODO: Untested, but equivalent code as Joseph Bloom's
-    if geometric_median_initialization and i_step == 0:
-        dictionary.initialize_b_d_with_geometric_median(activations)
-        geometric_median_initialization = False
 
     # forward pass
     pre_activations = dictionary.encode_pre_activation(activations)
@@ -226,5 +229,7 @@ for i_step in tqdm(range(len(train_loader))):
             json.dump(metrics, fp)
 
 # Save the model
-torch.save(dictionary.state_dict(), f'{args.results_dir}/{wandb_run_name}_model.pt')
+# Save in a new models dir
+os.makedirs("models", exist_ok=True)
+torch.save(dictionary.state_dict(), f'models/{wandb_run_name}_model.pt')
 wandb.finish()
