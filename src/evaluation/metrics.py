@@ -2,7 +2,6 @@ import torch
 from baukit import Trace
 from transformers import PreTrainedModel
 
-from .autoencoder import Dict
 
 
 def FVU(x, x_hat):
@@ -38,7 +37,7 @@ def dec_bias_median_distance(x, dictionary):
 
 def FLR(
         activation_name: str, 
-        dictionary: Dict,
+        dictionary,
         input_ids: torch.Tensor,
         model: PreTrainedModel, 
     ):

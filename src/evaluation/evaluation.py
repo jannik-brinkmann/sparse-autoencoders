@@ -5,16 +5,14 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import PreTrainedModel
 
-from .autoencoder import Dict
-from .buffer import ActivationBuffer
 from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance
 
 
 def evaluate(
         activation_name: str, 
         data_loader: DataLoader,
-        dictionary: Dict, 
-        feature_buffer: ActivationBuffer,
+        dictionary, 
+        feature_buffer,
         model: PreTrainedModel,
         device: str
     ):

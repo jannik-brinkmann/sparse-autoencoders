@@ -44,11 +44,14 @@ class UntiedSAE(Dict, nn.Module):
         x_bar = x - self.b_d
         return x_bar @ self.W_e.T + self.b_e
     
-    def encode(self, x):
+    def encode(self, x, output_pre_activations=False):
         x_bar = x - self.b_d
         pre_activation = x_bar @ self.W_e.T + self.b_e
         post_activation = F.relu(pre_activation)
-        return pre_activation, post_activation 
+        if output_pre_activations:
+            return pre_activation, post_activation 
+        else: 
+            return post_activation
     
     def decode(self, f):
         # Normalize the weights
@@ -58,6 +61,17 @@ class UntiedSAE(Dict, nn.Module):
     
     def forward(self, x):
         return self.decode(self.encode(x))
+    
+    @torch.no_grad()
+    def set_decoder_weights_and_grad_to_unit_norm(self):
+
+        # set decoder weight columns to unit norm
+        W_d_normed = self.W_d / self.W_d.norm(dim=-1, keepdim=True)
+        self.W_d.data[:] = W_d_normed
+
+        # set decoder grad to unit norm to avoid discrepancy between gradient used by optimizer and true gradient
+        W_d_grad_proj = (self.W_d.grad * W_d_normed).sum(-1, keepdim=True) * W_d_normed
+        self.W_d.grad -= W_d_grad_proj
     
     @torch.no_grad()
     def initialize_b_d_with_geometric_median(self, activation_store):
