@@ -32,6 +32,9 @@ def MSE(x, x_hat):
     """compute mean squared error between input activations and reconstructed activations"""
     return (x - x_hat).pow(2).mean()
 
+def cosine_sim(x, x_hat):
+    return torch.nn.CosineSimilarity(dim=-1)(x, x_hat).mean()
+
 def dec_bias_median_distance(x, dictionary):
     # measure the median distance between the decoder bias and the activations
     return torch.norm(x - dictionary.b_d, dim=-1).median(0).values.mean()
@@ -70,6 +73,8 @@ def FLR(
             internal_activation = representation
 
         reconstruction = dictionary.forward(internal_activation)
+        # Scale reconstruction to have the same norm as internal_activation
+        # reconstruction = reconstruction * internal_activation.norm(dim=-1, keepdim=True) / reconstruction.norm(dim=-1, keepdim=True)
 
         if(isinstance(representation, tuple)):
             return_value = (reconstruction, second_value)
