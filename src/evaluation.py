@@ -7,7 +7,7 @@ from transformers import PreTrainedModel
 
 from .autoencoder import Dict
 from .buffer import ActivationBuffer
-from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance
+from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance, cosine_sim
 
 
 def evaluate(
@@ -21,14 +21,14 @@ def evaluate(
     
     # metrics = {k: [] for k in ["Loss Recovered", "FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency", "Feature Magnitude"]}
     metrics = {k: [] for k in [
-        "Metrics/CE Recovered", "Metrics/CE", "Metrics/CE Zero Ablated", "Metrics/CE SAE", "Metrics/CE-diff", "Metrics/FVU", "Metrics/L0",  "Metrics/L2 Norm (original activations)", "Metrics/L2 Ratio (reconstructed over original)", "Metrics/Effective L0", "Metrics/Dec Bias Median Distance", 
+        "Metrics/CE Recovered", "Metrics/CE", "Metrics/CE Zero Ablated", "Metrics/CE SAE", "Metrics/CE-diff", "Metrics/FVU", "Metrics/L0",  "Metrics/L2 Norm (original activations)", "Metrics/L2 Ratio (reconstructed over original)", "Metrics/Effective L0", "Metrics/Dec Bias Median Distance", "Metrics/Cosine_sim",
 
         "Losses/L1", "Losses/MSE", 
 
         "Sparsity/Dead Features", "Sparsity/Feature Frequency",
         ]}
     for idx, batch in enumerate(tqdm(data_loader)):
-        if(idx == 2):
+        if(idx == 5):
             break
         input_ids = batch["input_ids"].to(device)
 
@@ -52,6 +52,9 @@ def evaluate(
                 # compute metrics
                 flr, loss, loss_zero_ablation, loss_dict_reconstruction, ce_diff = FLR(activation_name, dictionary, input_ids, model)
                 l2_norm_original = torch.norm(activations, 2, dim=-1).mean()
+                # Scale reconstruction to have same norm as the original activation
+                # reconstructions = reconstructions * activations.norm(dim=-1, keepdim=True) / reconstructions.norm(dim=-1, keepdim=True)
+
                 l2_norm_reconstructed = torch.norm(reconstructions, 2, dim=-1).mean()
                 l2_ratio = l2_norm_reconstructed / l2_norm_original
                 metrics["Losses/L1"].append(L1(features))
@@ -68,6 +71,7 @@ def evaluate(
                 metrics["Metrics/L2 Norm (original activations)"].append(l2_norm_original)
                 metrics["Metrics/L2 Ratio (reconstructed over original)"].append(l2_ratio)
                 metrics["Metrics/Dec Bias Median Distance"].append(dec_bias_median_distance(activations, dictionary))
+                metrics["Metrics/Cosine_sim"].append(cosine_sim(activations, reconstructions))
 
                 metrics["Sparsity/Dead Features"].append(dead_features(feature_buffer))
                 metrics["Sparsity/Feature Frequency"].append(feature_frequency(feature_buffer))
