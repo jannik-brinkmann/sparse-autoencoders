@@ -64,10 +64,8 @@ class CachedActivationLoader(ActivationLoader):
         return activations
             
     def get_activation_path(self, idx, split="train"):
-        if split == "validation":
-            filename = f"{self.config.model_name_or_path}_{self.config.dataset_name_or_path}_{self.config.hook_point}_{split}_{idx}.pt".replace("/", "_")
-        else:
-            filename = f"{self.config.model_name_or_path}_{self.config.dataset_name_or_path}_{self.config.hook_point}_{idx}.pt".replace("/", "_")
+        filename = f"{self.config.model_name_or_path}_{self.config.dataset_name_or_path}_{self.config.hook_point}_{split}_{idx}.pt"
+        filename = filename.replace("/", "_")
         filepath = os.path.join(self.config.cache_dir, filename)
         return filepath
         
