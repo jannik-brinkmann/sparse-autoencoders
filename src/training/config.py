@@ -37,6 +37,7 @@ class TrainingConfig:
     run_id: str = ""
     pid: str = ""
     output_dir: str = "outputs"
+    cache_dir: str = "cache"
     checkpoint_interval: int = 32
     
     # Weights and Biases
