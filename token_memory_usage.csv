@@ -1,0 +1,9 @@
+model_name,single_elem_size,num_elem,memory_in_bytes
+EleutherAI/pythia-70M-deduped,4,512,2048
+EleutherAI/pythia-160M-deduped,4,768,3072
+EleutherAI/pythia-410M-deduped,4,1024,4096
+EleutherAI/pythia-1B-deduped,4,2048,8192
+EleutherAI/pythia-1.4B-deduped,4,2048,8192
+EleutherAI/pythia-2.8B-deduped,4,2560,10240
+EleutherAI/pythia-6.9B-deduped,4,4096,16384
+EleutherAI/pythia-12B-deduped,4,5120,20480
