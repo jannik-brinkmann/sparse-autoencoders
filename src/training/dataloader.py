@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from einops import rearrange
 from tqdm import tqdm
 from baukit import Trace, TraceDict
+from dataclasses import replace
 
 
 from .config import TrainingConfig
@@ -36,21 +37,14 @@ class CachedActivationLoader(ActivationLoader):
         self.activation_size = self.get_activation_size(base_model, tokenizer)
         
         # evaluate if activations for a given config have been cached before
-        is_cached = False
-        substring = f"{config.model_name_or_path}_{config.dataset_name_or_path}".replace("/", "_")
-        for _, _, filenames in os.walk(config.cache_dir):
-            for filename in filenames:
-                if substring in filename:
-                    is_cached = True
-                if is_cached:
-                    break
-        
-        # if needed, cache the activations
-        train_loader, test_loader = self.get_dataloaders(tokenizer)
-        if not is_cached:
+        self.activations_dir = f"{config.model_name_or_path}_{config.dataset_name_or_path}_{self.config.hook_point}".replace("/", "_")
+        if os.path.exists(self.activations_dir) and os.path.isdir(self.activations_dir):
+            pass
+        else:
+            os.makedirs(self.activations_dir, exist_ok=True)
+            train_loader, test_loader = self.get_dataloaders(tokenizer)
             self.cache_activations(base_model, train_loader, [config.hook_point], split="train")
             self.cache_activations(base_model, test_loader, [config.hook_point], split="validation")
-        self.test_loader = test_loader
         
         # delete model and tokenizer, collect garbage, and clear CUDA cache
         base_model.cpu()
@@ -103,7 +97,8 @@ class CachedActivationLoader(ActivationLoader):
         return train_loader, test_loader
         
     def cache_activations(self, model, data_loader, activation_names, split="train"):
-        os.makedirs(self.config.cache_dir, exist_ok=True)
+        cache_location = os.path.join(self.activations_dir, split)
+        os.makedirs(cache_location, exist_ok=True)
 
         # go through the dataloader and save activations
         for batch_idx, batch in enumerate(tqdm(data_loader)):
@@ -112,12 +107,12 @@ class CachedActivationLoader(ActivationLoader):
                 with TraceDict(model, activation_names) as ret:
                     _ = model(tokens)
                     for act_name in activation_names:
-                        activation_path = self.get_activation_path(batch_idx, split=split)
+                        cache_file = os.path.join(cache_location, batch_idx) + ".pt"
                         representation = ret[act_name].output
                         if(isinstance(representation, tuple)):
                             representation = representation[0]
                         activation = rearrange(representation, "b seq d_model -> (b seq) d_model").cpu()
-                        torch.save(activation, activation_path)
+                        torch.save(activation, cache_file)
 
 
         

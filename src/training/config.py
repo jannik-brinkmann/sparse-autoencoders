@@ -12,6 +12,7 @@ class TrainingConfig:
     model_name_or_path: str = ""
     hook_point: str = ""
     dataset_name_or_path: str = ""
+    activation_size: int = -1
     
     # SAE Parameters
     expansion_factor: int = 32

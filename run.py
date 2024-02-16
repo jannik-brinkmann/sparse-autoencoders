@@ -20,7 +20,7 @@ config = TrainingConfig(
         expansion_factor = 4,
         steps = 3440,
         use_ghost_grads = False,
-        sparsity_coefficient = 200000,
+        sparsity_coefficient = 3e-3,
         
         # Weights and Biases
         use_wandb = True,
@@ -67,6 +67,12 @@ def training(configs):
     run_dir = os.path.join("outputs", run_id)
     os.makedirs(run_dir, exist_ok=True)
     
+    # determine activation size
+    activation_loader = CachedActivationLoader(config)
+    activations = activation_loader.get(0, split="train")
+    activation_size = activations.size(-1)
+    configs = [replace(c, activation_size=activation_size) for c in configs]
+    
     # determine the number of autoencoders that should be trained in parallel
     n_autoencoders = len(configs)
     
@@ -88,8 +94,7 @@ def training(configs):
         workers.append(worker)
         
     # generate activations and send them to the worker processes
-    activation_loader = CachedActivationLoader(config)
-    for i in range(3440):
+    for i in range(3440): #TODO: change number to config.steps, right?
         activations = activation_loader.get(i, split="train")
         for q in queues:
             semaphore.acquire()

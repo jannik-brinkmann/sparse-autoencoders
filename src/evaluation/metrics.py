@@ -25,7 +25,9 @@ def Effective_L0(features):
 
 def L1(features):
     return torch.norm(features, 1, dim=-1).mean()
-
+    
+def cosine_sim(x, x_hat):
+    return torch.nn.CosineSimilarity(dim=-1)(x, x_hat).mean()
 
 def MSE(x, x_hat):
     """compute mean squared error between input activations and reconstructed activations"""

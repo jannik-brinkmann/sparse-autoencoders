@@ -4,27 +4,40 @@ from einops import rearrange
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import PreTrainedModel
+import os
 
 from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance
 
 
+def get_activation_path(idx, split="train"):
+    filename = f"{self.config.model_name_or_path}_{self.config.dataset_name_or_path}_{self.config.hook_point}_{split}_{idx}.pt"
+    filename = filename.replace("/", "_")
+    filepath = os.path.join(self.config.cache_dir, filename)
+    return filepath
+
 def evaluate(
-        activation_name: str, 
-        activation_loader,
+        config,
         dictionary, 
         feature_buffer,
-        model: PreTrainedModel,
-        device: str
     ):
     
     # metrics = {k: [] for k in ["Loss Recovered", "FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency", "Feature Magnitude"]}
     metrics = {k: [] for k in [
-        "Metrics/CE Recovered", "Metrics/CE", "Metrics/CE Zero Ablated", "Metrics/CE SAE", "Metrics/CE-diff", "Metrics/FVU", "Metrics/L0",  "Metrics/L2 Norm (original activations)", "Metrics/L2 Ratio (reconstructed over original)", "Metrics/Effective L0", "Metrics/Dec Bias Median Distance", 
+        "Metrics/CE Recovered", "Metrics/CE", "Metrics/CE Zero Ablated", "Metrics/CE SAE", "Metrics/CE-diff", "Metrics/FVU", "Metrics/L0",  "Metrics/L2 Norm (original activations)", "Metrics/L2 Ratio (reconstructed over original)", "Metrics/Effective L0", "Metrics/Dec Bias Median Distance", "Metrics/Cosine Sim",
 
         "Losses/L1", "Losses/MSE", 
 
         "Sparsity/Dead Features", "Sparsity/Feature Frequency",
         ]}
+    
+    # get all files in the cache folder that are tagged as validation
+    
+    filepath = .get_activation_path(item, split)
+    activations = torch.load(filepath)
+    return activations
+            
+    
+    
     for idx, batch in enumerate(tqdm(activation_loader.test_loader)):
         if(idx == 2):
             break
@@ -32,6 +45,8 @@ def evaluate(
 
         # get activations
         with torch.no_grad():
+            
+            
             with Trace(model, activation_name) as ret:
 
                 # cache activations
@@ -66,6 +81,7 @@ def evaluate(
                 metrics["Metrics/L2 Norm (original activations)"].append(l2_norm_original)
                 metrics["Metrics/L2 Ratio (reconstructed over original)"].append(l2_ratio)
                 metrics["Metrics/Dec Bias Median Distance"].append(dec_bias_median_distance(activations, dictionary))
+                metrics["Metrics/Cosine Sim"].append(cosine_sim(activations, reconstructions))
 
                 metrics["Sparsity/Dead Features"].append(dead_features(feature_buffer))
                 metrics["Sparsity/Feature Frequency"].append(feature_frequency(feature_buffer))

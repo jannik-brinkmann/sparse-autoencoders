@@ -40,10 +40,6 @@ class UntiedSAE(Dict, nn.Module):
         norms = self.W_d.norm(dim=-1, keepdim=True)
         self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
     
-    def encode_pre_activation(self, x):
-        x_bar = x - self.b_d
-        return x_bar @ self.W_e.T + self.b_e
-    
     def encode(self, x, output_pre_activations=False):
         x_bar = x - self.b_d
         pre_activation = x_bar @ self.W_e.T + self.b_e
