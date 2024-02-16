@@ -10,7 +10,7 @@ from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, fe
 
 def evaluate(
         activation_name: str, 
-        data_loader: DataLoader,
+        activation_loader,
         dictionary, 
         feature_buffer,
         model: PreTrainedModel,
@@ -25,7 +25,7 @@ def evaluate(
 
         "Sparsity/Dead Features", "Sparsity/Feature Frequency",
         ]}
-    for idx, batch in enumerate(tqdm(data_loader)):
+    for idx, batch in enumerate(tqdm(activation_loader.test_loader)):
         if(idx == 2):
             break
         input_ids = batch["input_ids"].to(device)

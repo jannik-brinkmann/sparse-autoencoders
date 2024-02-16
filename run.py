@@ -1,31 +1,33 @@
-import multiprocessing
-
-from src import TrainingConfig, CachedActivationLoader, Trainer
-
-multiprocessing.set_start_method('spawn', force=True)
 import os
+import multiprocessing
 from dataclasses import replace
 from datetime import datetime
 from multiprocessing import Semaphore
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from src import CachedActivationLoader, Trainer, TrainingConfig
+
+multiprocessing.set_start_method('spawn', force=True)
+
 config = TrainingConfig(
-        
         # Base Model
         model_name_or_path = "EleutherAI/pythia-70m-deduped",
         dataset_name_or_path = "Elriggs/openwebtext-100k",
         hook_point = "gpt_neox.layers.3",
         lr_warmup_steps = 100, 
-        expansion_factor = 32,
+        expansion_factor = 4,
         steps = 3440,
+        use_ghost_grads = False,
+        sparsity_coefficient = 200000,
         
         # Weights and Biases
         use_wandb = True,
         wandb_entity = "jannik-brinkmann",
         wandb_project = "sparse-autoencoder",
     )
-configs = [config, config]
+configs = [config]
 
 
 def worker_process(queue, config, semaphore):
@@ -62,7 +64,7 @@ def training(configs):
     # generate a UUID for the training run
     run_id = datetime.now().strftime("%Y%m%d%H%M%S%f")
     configs = [replace(c, run_id=run_id) for c in configs]
-    run_dir = os.path.join(config.output_dir, run_id)
+    run_dir = os.path.join("outputs", run_id)
     os.makedirs(run_dir, exist_ok=True)
     
     # determine the number of autoencoders that should be trained in parallel
@@ -72,20 +74,23 @@ def training(configs):
     queues = [multiprocessing.Queue() for _ in range(n_autoencoders)]
     
     # setup a limit for the queue size to avoid out-of-memory issues
-    queue_size_limit = 20
+    queue_size_limit = 10
     semaphore = Semaphore(queue_size_limit)
     
     # create and start worker processes
     workers = []
     for i in range(n_autoencoders):
-        worker = multiprocessing.Process(target=worker_process, args=(queues[i], configs[i], semaphore))
+        worker = multiprocessing.Process(
+            target=worker_process, 
+            args=(queues[i], configs[i], semaphore)
+        )
         worker.start()
         workers.append(worker)
         
     # generate activations and send them to the worker processes
     activation_loader = CachedActivationLoader(config)
-    for i in range(10):
-        activations = activation_loader[i]
+    for i in range(3440):
+        activations = activation_loader.get(i, split="train")
         for q in queues:
             semaphore.acquire()
             q.put(activations)
@@ -99,7 +104,7 @@ def training(configs):
     for w in workers:
         w.join()  
         
-
+        
 if __name__ == "__main__":
     training(configs)
     

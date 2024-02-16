@@ -46,10 +46,11 @@ class CachedActivationLoader(ActivationLoader):
                     break
         
         # if needed, cache the activations
+        train_loader, test_loader = self.get_dataloaders(tokenizer)
         if not is_cached:
-            train_loader, test_loader = self.get_dataloaders(tokenizer)
             self.cache_activations(base_model, train_loader, [config.hook_point], split="train")
             self.cache_activations(base_model, test_loader, [config.hook_point], split="validation")
+        self.test_loader = test_loader
         
         # delete model and tokenizer, collect garbage, and clear CUDA cache
         base_model.cpu()
@@ -85,7 +86,7 @@ class CachedActivationLoader(ActivationLoader):
                 activation_size = representation.shape[-1]
         return activation_size
         
-    def get_dataloaders(self, tokenizer, test_size=1000):
+    def get_dataloaders(self, tokenizer, test_size=0.02):
         dataset = load_dataset(self.config.dataset_name_or_path, split="train")
         token_dataset, _ = chunk_and_tokenize(dataset, tokenizer, max_length=self.config.ctx_length)
         token_dataset = token_dataset.train_test_split(test_size=test_size)

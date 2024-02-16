@@ -8,7 +8,7 @@ from ..autoencoders import UntiedSAE
 from .cache import FeatureCache
 from .optimizer import ConstrainedAdamW
 from .utils import save_config
-from ..evaluation import FVU, dead_features
+from ..evaluation import FVU, dead_features, evaluate
 
 
 class Trainer:
@@ -145,7 +145,20 @@ class Trainer:
             
         # log evaluation statistics
         if self.n_steps % self.config.evaluation_interval == 0:
-            pass
+            metrics = evaluate(
+                activation_name, 
+                test_loader, 
+                self.dict, 
+                self.feature_cache, 
+                model, 
+                device
+            )
+            wandb.log(metrics)
+            # Log number of tokens so far
+            wandb.log({"Tokens": i_step * batch_size * context_length})
+            # append to file, not overwrite
+            with open(f'{args.results_dir}/{wandb_run_name}_metrics_step_{i_step}.json', 'a') as fp:
+                json.dump(metrics, fp)
         
     def evaluate(self, activations: torch.Tensor):
         self.dict.eval()
