@@ -16,20 +16,20 @@ class TrainingConfig:
     
     # SAE Parameters
     expansion_factor: int = 32
-    b_dec_init_method = "" 
+    b_dec_init_method: str = "" 
     
     # Training Parameters
+    n_steps: int = 10
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     batch_size: int = 64
     ctx_length: int = 256
     lr: float = 4e-4
     lr_warmup_steps: int = 1000
-    sparsity_coefficient: float = 0.0001
+    sparsity_coefficient: float = 0.00008
     evaluation_interval: int = 400
     
     # Activation Buffer
     n_tokens_in_feature_cache: int = 1e6 
-    steps: int = 10
     
     # Ghost Grads
     use_ghost_grads: bool = False
@@ -45,7 +45,8 @@ class TrainingConfig:
     use_wandb: bool = False
     wandb_entity: str = ""
     wandb_project: str = "sparse-autoencoder"
-    wandb_run_name: str = ""
+    wandb_name: str = ""
+    wandb_group: str = ""
 
 
 @dataclass 

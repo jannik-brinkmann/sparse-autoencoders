@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -35,10 +36,15 @@ class UntiedSAE(Dict, nn.Module):
         self.W_d = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.activation_size, self.dict_size)))
         self.b_e = nn.Parameter(torch.zeros(self.dict_size))
         self.b_d = nn.Parameter(torch.zeros(self.activation_size))
-
+        
         # set decoder weights to unit norm
-        norms = self.W_d.norm(dim=-1, keepdim=True)
-        self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
+        with torch.no_grad():
+            self.W_d.data /= torch.norm(self.W_d.data, dim=1, keepdim=True)
+
+        
+        # norms = self.W_d.norm(dim=-1, keepdim=True)
+        # self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
+        # self.W_dec.data /= torch.norm(self.W_dec.data, dim=1, keepdim=True)
     
     def encode(self, x, output_pre_activations=False):
         x_bar = x - self.b_d
@@ -51,8 +57,8 @@ class UntiedSAE(Dict, nn.Module):
     
     def decode(self, f):
         # Normalize the weights
-        norms = self.W_d.norm(dim=-1, keepdim=True)
-        self.W_d.data = self.W_d / torch.clamp(norms, 1e-8)
+        #norms = self.W_d.norm(dim=-1, keepdim=True)
+        #self.W_d.data = self.W_d / torch.clamp(norms, 1e-8)
         return f @ self.W_d.T + self.b_d
     
     def forward(self, x):
@@ -61,13 +67,25 @@ class UntiedSAE(Dict, nn.Module):
     @torch.no_grad()
     def set_decoder_weights_and_grad_to_unit_norm(self):
 
-        # set decoder weight columns to unit norm
-        W_d_normed = self.W_d / self.W_d.norm(dim=-1, keepdim=True)
-        self.W_d.data[:] = W_d_normed
+        # # set decoder weight columns to unit norm
+        # W_d_normed = self.W_d / self.W_d.norm(dim=-1, keepdim=True)
+        # self.W_d.data[:] = W_d_normed
 
-        # set decoder grad to unit norm to avoid discrepancy between gradient used by optimizer and true gradient
-        W_d_grad_proj = (self.W_d.grad * W_d_normed).sum(-1, keepdim=True) * W_d_normed
-        self.W_d.grad -= W_d_grad_proj
+        # # set decoder grad to unit norm to avoid discrepancy between gradient used by optimizer and true gradient
+        # W_d_grad_proj = (self.W_d.grad * W_d_normed).sum(-1, keepdim=True) * W_d_normed
+        # self.W_d.grad -= W_d_grad_proj
+        
+        parallel_component = einops.einsum(
+            self.W_d.grad,
+            self.W_d.data,
+            "d_sae d_in, d_sae d_in -> d_sae",
+        )
+
+        self.W_d.grad -= einops.einsum(
+            parallel_component,
+            self.W_d.data,
+            "d_sae, d_sae d_in -> d_sae d_in",
+        )
     
     @torch.no_grad()
     def initialize_b_d_with_geometric_median(self, activation_store):

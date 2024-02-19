@@ -39,7 +39,8 @@ class Trainer:
             self.dict.initialize_b_d_with_geometric_median()
         
         # initialize the feature cache
-        cache_size = int(config.n_tokens_in_feature_cache // (config.batch_size * config.ctx_length))
+        tokens_per_batch = config.batch_size * config.ctx_length
+        cache_size = int(config.n_tokens_in_feature_cache // tokens_per_batch)
         self.feature_cache = FeatureCache(
             cache_size=cache_size,
             dict_size=dict_size
@@ -56,27 +57,27 @@ class Trainer:
             optimizer=self.optimizer,
             lr_lambda=lambda steps: min(1.0, (steps + 1) / config.lr_warmup_steps),
         )
-        #TODO: how do we login? We could make it public? Or?
-        # initialize the weights and biases projects
-        if self.config.use_wandb:
-            wandb.init(
-                entity=self.config.wandb_entity,
-                project=self.config.wandb_project, 
-                name=self.config.wandb_run_name,
-                group=self.config.run_id
-            )
         
     def compute_loss(self, activations, features, reconstructions):
-        l2_loss = (activations - reconstructions).pow(2).mean().sqrt()
-        l1_loss = torch.norm(features, 1, dim=-1).mean()
+        #l2_loss = (activations - reconstructions).pow(2).mean().sqrt()
+        #l1_loss = torch.norm(features, 1, dim=-1).mean()
 
         # l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
         # variance = (activations**2).sum(dim=-1, keepdim=True).sqrt().mean()
         # std = variance.sqrt()
         # l2_loss = l2_loss / variance
         # l1_loss = l1_loss / std
-        loss = l2_loss + self.config.sparsity_coefficient * l1_loss
-        return loss, l2_loss, l1_loss
+        #loss = l2_loss + self.config.sparsity_coefficient * l1_loss
+        x_centred = activations - activations.mean(dim=0, keepdim=True)
+        mse_loss = (
+            torch.pow((reconstructions - activations.float()), 2)
+            / (x_centred**2).sum(dim=-1, keepdim=True).sqrt()
+        )
+        mse_loss = mse_loss.mean()
+        sparsity = torch.abs(features).sum(dim=1).mean(dim=(0,))# torch.norm(features, 1, dim=-1).mean()
+        l1_loss = self.config.sparsity_coefficient * sparsity
+        loss = mse_loss + l1_loss
+        return loss, mse_loss, l1_loss
     
     def ghost_gradients_loss(self, activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
         # ghost protocol (from Joseph Bloom: https://github.com/jbloomAus/mats_sae_training/blob/98e4f1bb416b33d49bef1acc676cc3b1e9ed6441/sae_training/sparse_autoencoder.py#L105)
@@ -105,7 +106,7 @@ class Trainer:
         return mse_loss_ghost_resid
         
     def step(self, activations: torch.Tensor):
-        self.n_steps += 1
+        
         
         # forward pass
         pre_activations, features = self.dict.encode(activations, output_pre_activations=True)
@@ -127,9 +128,10 @@ class Trainer:
         # backward pass
         self.optimizer.zero_grad()
         loss.backward()
+        self.dict.set_decoder_weights_and_grad_to_unit_norm()
         self.optimizer.step()
         self.scheduler.step()
-                        
+        
         # log training statistics
         if self.config.use_wandb:
             wandb.log({
@@ -138,43 +140,12 @@ class Trainer:
                 "Train/L2 Loss": l2_loss,
                 "Train/L0": torch.norm(features, 0, dim=-1).mean(),
                 "Train/Dead Features": dead_features(self.feature_cache),
-                "Train/Variance Unexplained": FVU(activations, reconstructions)
+                "Train/Variance Unexplained": FVU(activations, reconstructions),
+                "Model/W_e": wandb.Histogram(self.dict.W_e.detach().cpu()),
+                "Model/W_d": wandb.Histogram(self.dict.W_d.detach().cpu()),
+                "Model/b_e": wandb.Histogram(self.dict.b_e.detach().cpu()),
+                "Model/b_d": wandb.Histogram(self.dict.b_d.detach().cpu()),
             })
-            
-        # log evaluation statistics
-        if self.n_steps % self.config.evaluation_interval == 0:
-            metrics = evaluate(
-                self.config,
-                self.dict, 
-                self.feature_cache,
-            )
-            wandb.log(metrics)
-            # Log number of tokens so far
-            wandb.log({"Tokens": self.n_steps * self.config.batch_size * self.config.ctx_length})
-            wandb.log({"Bias/b_e": wandb.Histogram(self.dict.b_e.detach().cpu().numpy())})
-            wandb.log({"Bias/b_d": wandb.Histogram(self.dict.b_d.detach().cpu().numpy())})
-       
-            # append to file, not overwrite
-            # with open(f'{args.results_dir}/{self.config.wandb_run_name}_metrics_step_{self.n_steps}.json', 'a') as fp:
-            #     json.dump(metrics, fp)
-        
-    # def evaluate(self, activations: torch.Tensor):
-    #     self.dict.eval()
-        
-    #     features = self.dict.encode(activations)
-    #     reconstructions = self.dict.decode(features)
-    #     loss, l2_loss, l1_loss = self.compute_loss(activations, features, reconstructions)
-        
-    #     self.dict.train()
-        
-    #     return {
-    #         "Evaluation/Loss": loss,
-    #         "Evaluation/L1 Loss": l1_loss,
-    #         "Evaluation/L2 Loss": l2_loss,
-    #         "Evaluation/L0": torch.norm(features, 0, dim=-1).mean(),
-    #         "Evaluation/Dead Features": (features.sum(0) == 0).sum(),
-    #         "Evaluation/Variance Unexplained": FVU(activations, reconstructions)
-    #     }
 
     def save_weights(self, filename="checkpoint.pt"):
         filepath = os.path.join(self.checkpoint_dir, filename)
