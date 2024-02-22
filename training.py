@@ -41,16 +41,19 @@ args.model_name_or_path = "EleutherAI/pythia-70m-deduped"
 # args.model_name_or_path = "gpt2"
 args.dataset_name_or_path = "Elriggs/openwebtext-100k"
 args.ghost_gradients = True
-args.dead_feature_threshold = 2e6
+args.dead_feature_threshold = 3e6
+# args.dead_feature_threshold = 5e5
+# args.dead_feature_threshold = 1e5
 
 # dict
 layer = 3
 activation_name = f"gpt_neox.layers.{layer}"
 # activation_name = f"transformer.h.{layer}"
 ratio = 4
-# sparsity_coefficient = 6e-3 # Ghost gradients need to be 2x more
+sparsity_coefficient = 3e-3 # Ghost gradients need to be 2x more
 # sparsity_coefficient = 3e-3
-sparsity_coefficient = 3e-4 # batch variances
+# sparsity_coefficient = 10 # KL 1.0
+# sparsity_coefficient = 3e-4 # batch variances
 
 # optimizer
 gradient_accumulation_steps = 4
@@ -131,7 +134,7 @@ class ConstrainedAdamW(torch.optim.Adam):
             #     "d_sae, d_in d_sae  ->  d_in d_sae",
             # )
         
-            # # Sam Marks implementation
+            # Sam Marks implementation
             normed_p = p / p.norm(dim=0, keepdim=True)
             # project away the parallel component of the gradient
             p.grad -= (p.grad * normed_p).sum(dim=0, keepdim=True) * normed_p
@@ -156,15 +159,28 @@ def ghost_gradients_loss(activations, reconstructions, pre_activations, dead_fea
     # 1.
     residual = (activations - reconstructions).detach()
     l2_norm_residual = torch.norm(residual, dim=-1)
-    
+    # shape = (batch_size, d_model)
+    dead_features_mask = dead_features_mask.detach()
     # 2.
     # feature_acts_dead_neurons_only = torch.exp(feature_acts[:, dead_neuron_mask])
     feature_acts_dead_neurons_only = torch.exp(pre_activations[:, dead_features_mask])
     ghost_out =  feature_acts_dead_neurons_only @ dictionary.W_d[:,dead_features_mask].T
     l2_norm_ghost_out = torch.norm(ghost_out, dim = -1)
+
+    # Remove too low exp activations
+    high_enough_activations_mask = l2_norm_ghost_out > 1e-15
+    ghost_out = ghost_out[high_enough_activations_mask]
+    residual = residual[high_enough_activations_mask]
+    l2_norm_residual = l2_norm_residual[high_enough_activations_mask]
+    l2_norm_ghost_out = l2_norm_ghost_out[high_enough_activations_mask]
     # Treat norm scaling factor as a constant (gradient-wise)
     norm_scaling_factor = (l2_norm_residual / ((l2_norm_ghost_out + eps)*2))[:, None].detach() 
     ghost_out = ghost_out*norm_scaling_factor
+    # print(f"features_acts_dead_neurons_only: {feature_acts_dead_neurons_only}")
+    # print(f"norm_scaling_factor: {norm_scaling_factor}")
+    print(f"L2 norm residual: {l2_norm_residual}")
+    print(f"L2 norm ghost out: {l2_norm_ghost_out}")
+    print(f"size of too low exp activations: {high_enough_activations_mask.sum()}")
     # 3. 
     # residual_centered = residual - residual.mean(dim=0, keepdim=True)
     # mse_loss_ghost_resid = (
@@ -174,28 +190,19 @@ def ghost_gradients_loss(activations, reconstructions, pre_activations, dead_fea
     # mse_loss_ghost_resid = (
     #     torch.pow((ghost_out - residual.float()), 2) / (residual**2).sum(dim=-1, keepdim=True).sqrt()
     # ).mean()
-    mse_loss_ghost_resid = (ghost_out - residual).pow(2).mean()
-    mse_rescaling_factor = (mse_loss / mse_loss_ghost_resid + eps).detach() # Treat mse rescaling factor as a constant (gradient-wise)
-    mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid
-    return mse_loss_ghost_resid
+    mse_loss_ghost_resid_prescaled = (ghost_out - residual).pow(2).mean()
+    mse_rescaling_factor = (mse_loss / mse_loss_ghost_resid_prescaled + eps).detach() # Treat mse rescaling factor as a constant (gradient-wise)
+    mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid_prescaled
+    return mse_loss_ghost_resid, mse_loss_ghost_resid_prescaled
     
 def compute_loss(activations, features, reconstructions, normalize=False):
-    # l2_loss = (activations - reconstructions).pow(2).mean()
-    x_centred = activations - activations.mean(dim=0, keepdim=True)
-    l2_loss = (
-        torch.pow((reconstructions - activations.float()), 2)
-        / (x_centred**2).sum(dim=-1, keepdim=True).sqrt()
-    ).mean()
+    l2_loss = (activations - reconstructions).pow(2).mean()
+    # x_centred = activations - activations.mean(dim=0, keepdim=True)
+    # l2_loss = (
+    #     torch.pow((reconstructions - activations.float()), 2)
+    #     / (x_centred**2).sum(dim=-1, keepdim=True).sqrt()
+    # ).mean()
     l1_loss = torch.norm(features, 1, dim=-1).mean()
-
-    # If batch normalization
-    # l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
-    if(normalize):
-        variance = (activations**2).sum(dim=-1, keepdim=True).sqrt().mean()
-        std = variance.sqrt()
-        l2_loss = l2_loss / variance
-        l1_loss = l1_loss / std
-        print(f"{l1_loss/l2_loss:.2f}")
     loss = l2_loss + sparsity_coefficient * l1_loss
     return loss, l2_loss, l1_loss
 
@@ -218,9 +225,29 @@ train_kl = False
 kl_alpha = None
 
 activated_since = torch.zeros(num_features, device=device)
-# training loop
-for i_step, batch in tqdm(enumerate(train_loader)):
+dead_features_mask = torch.zeros(num_features, device=device).bool()
 
+def dict_ablation_fn(representation):
+    if(isinstance(representation, tuple)):
+        second_value = representation[1]
+        internal_activation = representation[0]
+    else:
+        internal_activation = representation
+
+    reconstruction = dictionary.forward(internal_activation)
+    # Scale reconstruction to have the same norm as internal_activation
+    # reconstruction = reconstruction * internal_activation.norm(dim=-1, keepdim=True) / reconstruction.norm(dim=-1, keepdim=True)
+
+    if(isinstance(representation, tuple)):
+        return_value = (reconstruction, second_value)
+    else:
+        return_value = reconstruction
+
+    return return_value
+from baukit import Trace
+# training loop
+# use tqdm & enumerate
+for i_step, batch in enumerate(tqdm(train_loader)):
     # get activations
     activation_path = get_activation_path(args, activation_name, i_step)
     activations = torch.load(activation_path).to(device)
@@ -233,22 +260,46 @@ for i_step, batch in tqdm(enumerate(train_loader)):
     # compute loss
     loss, l2_loss, l1_loss = compute_loss(activations, features, reconstructions)
 
+    # if KL divergence
+    if train_kl:
+        batch = batch["input_ids"].to(device)
+        original_logits = model(batch).logits
+        with Trace(model, activation_name, edit_output=dict_ablation_fn) as ret:
+            logits_dict_reconstruction = model(batch).logits
+
+        # KL divergence
+        kl_loss = torch.nn.functional.kl_div(
+            torch.nn.functional.log_softmax(logits_dict_reconstruction, dim=-1),
+            torch.nn.functional.softmax(original_logits, dim=-1),
+            reduction="batchmean",
+        )
+        # Set KL to be the same scale as L2
+        kl_loss_scaled = kl_loss * (l2_loss / kl_loss).detach()
+
+        # Make kl be scaled relative to L2
+        kl_loss_scaled = kl_alpha * kl_loss_scaled
+        l2_loss_scaled = (1.0-kl_alpha) * l2_loss
+        loss = (l2_loss_scaled + kl_loss_scaled) + sparsity_coefficient*l1_loss
+    else:
+        loss = l2_loss + sparsity_coefficient*l1_loss
+
     # Update dead_features_mask
     nonzero_buffer.push(features.detach().sum(dim=0))
 
-    # Update activated_since
+    total_batches_dead = 2e6//tokens_per_batch
+    # Ghost Gradients
+    if(args.ghost_gradients and nonzero_buffer.full):
+        dead_features_mask = nonzero_buffer.get().sum(0) == 0
+        if(dead_features_mask.any()):
+            ghost_grad_loss, ghost_grad_loss_prescaled = ghost_gradients_loss(activations, reconstructions, pre_activations, dead_features_mask, l2_loss)
+            loss += ghost_grad_loss
+            # loss += ghost_gradients_loss(activations, reconstructions, pre_activations, dead_features_mask, l2_loss)
+
+
+    # # Update activated_since
     # activated = features.sum(0) > 0
     # activated_since[activated] = 0
     # activated_since[~activated] += 1
-    # total_batches_dead = 2e6//tokens_per_batch
-
-    # Ghost Gradients
-    if(args.ghost_gradients and nonzero_buffer.full):
-    # if(args.ghost_gradients and max(activated_since) >= total_batches_dead):
-        dead_features_mask = nonzero_buffer.get().sum(0) == 0
-        # dead_features_mask = activated_since > total_batches_dead
-        if(dead_features_mask.any()):
-            loss += ghost_gradients_loss(activations, reconstructions, pre_activations, dead_features_mask, l2_loss)
 
     # backward pass
     optimizer.zero_grad()
@@ -265,6 +316,14 @@ for i_step, batch in tqdm(enumerate(train_loader)):
         # Log histogram of dictionary b_d & b_e
         wandb.log({"b_d": wandb.Histogram(dictionary.b_d.detach().cpu().numpy())})
         wandb.log({"b_e": wandb.Histogram(dictionary.b_e.detach().cpu().numpy())})
+        # Log both ghost grad MSE's
+        if(args.ghost_gradients and dead_features_mask.any()):
+            wandb.log({"Losses/Ghost Grad Loss": ghost_grad_loss.item()})
+            wandb.log({"Losses/Ghost Grad Loss Prescaled": ghost_grad_loss_prescaled.item()})
+        if(train_kl):
+            wandb.log({"Losses/KL Loss": kl_loss.item()})
+            wandb.log({"Losses/L2 Loss Scaled": l2_loss_scaled.item()})
+            wandb.log({"Losses/KL Loss Scaled": kl_loss_scaled.item()})
         # append to file, not overwrite
         # with open(f'{args.results_dir}/{wandb_run_name}_metrics_step_{i_step}.json', 'a') as fp:
         #     json.dump(metrics, fp)
