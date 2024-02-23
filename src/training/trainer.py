@@ -61,50 +61,59 @@ class Trainer:
             lr_lambda=lambda steps: min(1.0, (steps + 1) / config.lr_warmup_steps),
         )
         
-    def compute_loss(self, activations, features, reconstructions):
-        
-        x_centred = activations - activations.mean(dim=0, keepdim=True)
-        mse_loss = (
-            torch.pow((reconstructions - activations.float()), 2)
-            / (x_centred**2).sum(dim=-1, keepdim=True).sqrt()
-        )
-        mse_loss = mse_loss.mean()
-        sparsity = torch.abs(features).sum(dim=1).mean(dim=(0,))
-        l1_loss = self.config.sparsity_coefficient * sparsity
-        loss = mse_loss + l1_loss
-        return loss, mse_loss, l1_loss
+    def compute_loss(self, activations, features, reconstructions, normalize=False):
+        l2_loss = (activations - reconstructions).pow(2).mean()
+        # x_centred = activations - activations.mean(dim=0, keepdim=True)
+        # l2_loss = (
+        #     torch.pow((reconstructions - activations.float()), 2)
+        #     / (x_centred**2).sum(dim=-1, keepdim=True).sqrt()
+        # ).mean()
+        l1_loss = torch.norm(features, 1, dim=-1).mean()
+        loss = l2_loss + self.config.sparsity_coefficient * l1_loss
+        return loss, l2_loss, l1_loss
     
-    def ghost_gradients_loss(self, activations, reconstructions, pre_activations, dead_neuron_mask, mse_loss):
-                
-        # ghost grad protocol
-        mse_loss_ghost_resid = torch.tensor(0.0, device=self.config.device)
-        if self.config.use_ghost_grads and dead_neuron_mask.sum() > 0:
-            assert dead_neuron_mask is not None
+    def ghost_gradients_loss(self, activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
+        # ghost protocol (from Joseph Bloom: https://github.com/jbloomAus/mats_sae_training/blob/98e4f1bb416b33d49bef1acc676cc3b1e9ed6441/sae_training/sparse_autoencoder.py#L105)
+        eps = 1e-30
+        
+        # 1.
+        residual = (activations - reconstructions).detach()
+        l2_norm_residual = torch.norm(residual, dim=-1)
+        # shape = (batch_size, d_model)
+        dead_features_mask = dead_features_mask.detach()
+        # 2.
+        # feature_acts_dead_neurons_only = torch.exp(feature_acts[:, dead_neuron_mask])
+        feature_acts_dead_neurons_only = torch.exp(pre_activations[:, dead_features_mask])
+        ghost_out =  feature_acts_dead_neurons_only @ self.dict.W_d[:,dead_features_mask].T
+        l2_norm_ghost_out = torch.norm(ghost_out, dim = -1)
 
-            # ghost protocol
-
-            # 1.
-            residual = activations - reconstructions
-            residual_centred = residual - residual.mean(dim=0, keepdim=True)
-            l2_norm_residual = torch.norm(residual, dim=-1)
-
-            # 2.
-            feature_acts_dead_neurons_only = torch.exp(pre_activations[:, dead_neuron_mask])
-            ghost_out = feature_acts_dead_neurons_only @ self.dict.W_d[dead_neuron_mask, :]
-            l2_norm_ghost_out = torch.norm(ghost_out, dim=-1)
-            norm_scaling_factor = l2_norm_residual / (1e-6 + l2_norm_ghost_out * 2)
-            ghost_out = ghost_out * norm_scaling_factor[:, None].detach()
-
-            # 3.
-            mse_loss_ghost_resid = (
-                torch.pow((ghost_out - residual.detach().float()), 2)
-                / (residual_centred.detach() ** 2).sum(dim=-1, keepdim=True).sqrt()
-            )
-            mse_rescaling_factor = (mse_loss / (mse_loss_ghost_resid + 1e-6)).detach()
-            mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid
-
-            mse_loss_ghost_resid = mse_loss_ghost_resid.mean()
-        return mse_loss_ghost_resid
+        # Remove too low exp activations
+        high_enough_activations_mask = l2_norm_ghost_out > 1e-15
+        ghost_out = ghost_out[high_enough_activations_mask]
+        residual = residual[high_enough_activations_mask]
+        l2_norm_residual = l2_norm_residual[high_enough_activations_mask]
+        l2_norm_ghost_out = l2_norm_ghost_out[high_enough_activations_mask]
+        # Treat norm scaling factor as a constant (gradient-wise)
+        norm_scaling_factor = (l2_norm_residual / ((l2_norm_ghost_out + eps)*2))[:, None].detach() 
+        ghost_out = ghost_out*norm_scaling_factor
+        # print(f"features_acts_dead_neurons_only: {feature_acts_dead_neurons_only}")
+        # print(f"norm_scaling_factor: {norm_scaling_factor}")
+        print(f"L2 norm residual: {l2_norm_residual}")
+        print(f"L2 norm ghost out: {l2_norm_ghost_out}")
+        print(f"size of too low exp activations: {high_enough_activations_mask.sum()}")
+        # 3. 
+        # residual_centered = residual - residual.mean(dim=0, keepdim=True)
+        # mse_loss_ghost_resid = (
+        #     torch.pow((ghost_out - residual.float()), 2) / (residual_centered**2).sum(dim=-1, keepdim=True).sqrt()
+        # ).mean()
+        # If batch normalization
+        # mse_loss_ghost_resid = (
+        #     torch.pow((ghost_out - residual.float()), 2) / (residual**2).sum(dim=-1, keepdim=True).sqrt()
+        # ).mean()
+        mse_loss_ghost_resid_prescaled = (ghost_out - residual).pow(2).mean()
+        mse_rescaling_factor = (mse_loss / mse_loss_ghost_resid_prescaled + eps).detach() # Treat mse rescaling factor as a constant (gradient-wise)
+        mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid_prescaled
+        return mse_loss_ghost_resid, mse_loss_ghost_resid_prescaled
         
     def step(self, activations: torch.Tensor):
         
