@@ -32,34 +32,31 @@ class UntiedSAE(Dict, nn.Module):
         self.activation_size = activation_size
         self.dict_size = dict_size
         
-        self.W_e = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.activation_size, self.dict_size)))
-        self.W_d = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.dict_size, self.activation_size)))
+        self.W_e = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.dict_size, self.activation_size)))
+        self.W_d = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.activation_size, self.dict_size)))
         self.b_e = nn.Parameter(torch.zeros(self.dict_size))
         self.b_d = nn.Parameter(torch.zeros(self.activation_size))
-        
-        with torch.no_grad():
-            self.W_d.data /= torch.norm(self.W_d.data, dim=1, keepdim=True)
 
-    def encode(self, x, output_pre_activations=False):
+        # set decoder weights to unit norm
+        # norms = self.W_d.norm(dim=-1, keepdim=True)
+        norms = self.W_d.norm(dim=0, keepdim=True)
+        print(self.W_d.norm(dim=0, keepdim=False).shape)
+        print("norm shape above:", self.dict_size)
+        self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
+
+    def encode_pre_activation(self, x):
         x_bar = x - self.b_d
-        activations = einops.einsum(
-                x_bar,
-                self.W_e,
-                "... d_in, d_in d_sae -> ... d_sae",
-            ) + self.b_e
-        features = F.relu(activations)
-        if output_pre_activations:
-            return activations, features 
-        else: 
-            return features
+        return x_bar @ self.W_e.T + self.b_e
+    
+    def encode(self, x):
+        x_bar = x - self.b_d
+        return F.relu(x_bar @ self.W_e.T + self.b_e)
     
     def decode(self, f):
-        reconstructions = einops.einsum(
-                f,
-                self.W_d,
-                "... d_sae, d_sae d_in -> ... d_in",
-            ) + self.b_d
-        return reconstructions
+        # Normalize the weights
+        # norms = self.W_d.norm(dim=-1, keepdim=True)
+        # self.W_d.data = self.W_d / torch.clamp(norms, 1e-8)
+        return f @ self.W_d.T + self.b_d
     
     def forward(self, x):
         return self.decode(self.encode(x))
