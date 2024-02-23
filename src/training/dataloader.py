@@ -35,15 +35,12 @@ class CachedActivationLoader(ActivationLoader):
         tokenizer = tokenizer = AutoTokenizer.from_pretrained(self.config.model_name_or_path)
         train_loader, test_loader = self.get_dataloaders(tokenizer)
         self.n_train_batches = len(train_loader)
-        print("n batches", self.n_train_batches)
         self.test_loader = test_loader
         
         # evaluate if activations for a given config have been cached before
         cache_folder = f"{config.model_name_or_path}_{config.dataset_name_or_path}_{self.config.hook_point}".replace("/", "_")
         self.activations_dir = os.path.join(os.path.join(config.cache_dir), cache_folder)
-        if os.path.exists(self.activations_dir) and os.path.isdir(self.activations_dir):
-            pass
-        else:
+        if not (os.path.exists(self.activations_dir) and os.path.isdir(self.activations_dir)):
             os.makedirs(self.activations_dir, exist_ok=True)
             self.cache_activations(
                 self.model, 
@@ -57,13 +54,6 @@ class CachedActivationLoader(ActivationLoader):
                 [config.hook_point], 
                 split="validation"
             )
-        
-        # delete model and tokenizer, collect garbage, and clear CUDA cache
-        # model.cpu()
-        # del model
-        # del tokenizer
-        # gc.collect()
-        # torch.cuda.empty_cache()
         
     def get_activation_path(self, idx, split="train"):
         activation_dir = os.path.join(self.activations_dir, split)

@@ -1,8 +1,5 @@
-import dataclasses
-from dataclasses import dataclass
-from datetime import datetime
-
 import torch
+from dataclasses import dataclass
 
 
 @dataclass
@@ -31,7 +28,7 @@ class TrainingConfig:
     # Activation Buffer
     n_tokens_in_feature_cache: int = 1e6 
     
-    # Ghost Grads
+    # Ghost Gradients
     use_ghost_grads: bool = False
     
     # I/O
@@ -47,10 +44,3 @@ class TrainingConfig:
     wandb_project: str = "sparse-autoencoder"
     wandb_name: str = ""
     wandb_group: str = ""
-
-
-@dataclass 
-class PostTrainingConfig(TrainingConfig):
-    scalar_multiple: bool = False
-    freeze_decoder: bool = False
-    
