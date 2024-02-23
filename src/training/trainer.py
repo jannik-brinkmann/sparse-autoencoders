@@ -35,8 +35,9 @@ class Trainer:
         )
         self.dict.to(self.config.device)
         
-        if config.b_dec_init_method == "geometric_median":
-            self.dict.initialize_b_d_with_geometric_median()
+        #if config.b_dec_init_method == "geometric_median":
+            # SETUP PROPERLY
+        #    self.dict.initialize_b_d_with_geometric_median()
         
         # initialize the feature cache
         tokens_per_batch = config.batch_size * config.ctx_length
@@ -53,60 +54,61 @@ class Trainer:
             constrained_param=self.dict.W_d,
             lr=config.lr
         )
+        # optimizer.betas = (beta1, beta2)
+        # optimizer.weight_decay = weight_decay
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer=self.optimizer,
             lr_lambda=lambda steps: min(1.0, (steps + 1) / config.lr_warmup_steps),
         )
         
     def compute_loss(self, activations, features, reconstructions):
-        #l2_loss = (activations - reconstructions).pow(2).mean().sqrt()
-        #l1_loss = torch.norm(features, 1, dim=-1).mean()
-
-        # l2_loss = (torch.pow((reconstructions-activations.float()), 2) / (activations**2).sum(dim=-1, keepdim=True).sqrt()).mean()
-        # variance = (activations**2).sum(dim=-1, keepdim=True).sqrt().mean()
-        # std = variance.sqrt()
-        # l2_loss = l2_loss / variance
-        # l1_loss = l1_loss / std
-        #loss = l2_loss + self.config.sparsity_coefficient * l1_loss
+        
         x_centred = activations - activations.mean(dim=0, keepdim=True)
         mse_loss = (
             torch.pow((reconstructions - activations.float()), 2)
             / (x_centred**2).sum(dim=-1, keepdim=True).sqrt()
         )
         mse_loss = mse_loss.mean()
-        sparsity = torch.abs(features).sum(dim=1).mean(dim=(0,))# torch.norm(features, 1, dim=-1).mean()
+        sparsity = torch.abs(features).sum(dim=1).mean(dim=(0,))
         l1_loss = self.config.sparsity_coefficient * sparsity
         loss = mse_loss + l1_loss
         return loss, mse_loss, l1_loss
     
-    def ghost_gradients_loss(self, activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
-        # ghost protocol (from Joseph Bloom: https://github.com/jbloomAus/mats_sae_training/blob/98e4f1bb416b33d49bef1acc676cc3b1e9ed6441/sae_training/sparse_autoencoder.py#L105)
-        eps = 1e-30
-        
-        # 1.
-        residual = (activations - reconstructions).detach()
-        l2_norm_residual = torch.norm(residual, dim=-1)
-        
-        # 2.
-        # feature_acts_dead_neurons_only = torch.exp(feature_acts[:, dead_neuron_mask])
-        feature_acts_dead_neurons_only = torch.exp(pre_activations[:, dead_features_mask])
-        ghost_out =  feature_acts_dead_neurons_only @ self.dict.W_d[:,dead_features_mask].T
-        l2_norm_ghost_out = torch.norm(ghost_out, dim = -1)
-        # Treat norm scaling factor as a constant (gradient-wise)
-        norm_scaling_factor = (l2_norm_residual / ((l2_norm_ghost_out + eps)*2))[:, None].detach() 
-        ghost_out = ghost_out*norm_scaling_factor
-        # 3. 
-        # If batch normalization
-        # mse_loss_ghost_resid = (
-        #     torch.pow((ghost_out - residual.float()), 2) / (residual**2).sum(dim=-1, keepdim=True).sqrt()
-        # ).mean()
-        mse_loss_ghost_resid = (ghost_out - residual).pow(2).mean().sqrt()
-        mse_rescaling_factor = (mse_loss / mse_loss_ghost_resid + eps).detach() # Treat mse rescaling factor as a constant (gradient-wise)
-        mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid
+    def ghost_gradients_loss(self, activations, reconstructions, pre_activations, dead_neuron_mask, mse_loss):
+                
+        # ghost grad protocol
+        mse_loss_ghost_resid = torch.tensor(0.0, device=self.config.device)
+        if self.config.use_ghost_grads and dead_neuron_mask.sum() > 0:
+            assert dead_neuron_mask is not None
+
+            # ghost protocol
+
+            # 1.
+            residual = activations - reconstructions
+            residual_centred = residual - residual.mean(dim=0, keepdim=True)
+            l2_norm_residual = torch.norm(residual, dim=-1)
+
+            # 2.
+            feature_acts_dead_neurons_only = torch.exp(pre_activations[:, dead_neuron_mask])
+            ghost_out = feature_acts_dead_neurons_only @ self.dict.W_d[dead_neuron_mask, :]
+            l2_norm_ghost_out = torch.norm(ghost_out, dim=-1)
+            norm_scaling_factor = l2_norm_residual / (1e-6 + l2_norm_ghost_out * 2)
+            ghost_out = ghost_out * norm_scaling_factor[:, None].detach()
+
+            # 3.
+            mse_loss_ghost_resid = (
+                torch.pow((ghost_out - residual.detach().float()), 2)
+                / (residual_centred.detach() ** 2).sum(dim=-1, keepdim=True).sqrt()
+            )
+            mse_rescaling_factor = (mse_loss / (mse_loss_ghost_resid + 1e-6)).detach()
+            mse_loss_ghost_resid = mse_rescaling_factor * mse_loss_ghost_resid
+
+            mse_loss_ghost_resid = mse_loss_ghost_resid.mean()
         return mse_loss_ghost_resid
         
     def step(self, activations: torch.Tensor):
         
+        self.dict.set_decoder_norm_to_unit_norm()
         
         # forward pass
         pre_activations, features = self.dict.encode(activations, output_pre_activations=True)
@@ -128,9 +130,10 @@ class Trainer:
         # backward pass
         self.optimizer.zero_grad()
         loss.backward()
-        self.dict.set_decoder_weights_and_grad_to_unit_norm()
+        self.dict.remove_gradient_parallel_to_decoder_directions()
         self.optimizer.step()
         self.scheduler.step()
+        self.n_steps += 1
         
         # log training statistics
         if self.config.use_wandb:
@@ -141,6 +144,7 @@ class Trainer:
                 "Train/L0": torch.norm(features, 0, dim=-1).mean(),
                 "Train/Dead Features": dead_features(self.feature_cache),
                 "Train/Variance Unexplained": FVU(activations, reconstructions),
+                "Train/Tokens": self.n_steps * self.config.batch_size * self.config.ctx_length,
                 "Model/W_e": wandb.Histogram(self.dict.W_e.detach().cpu()),
                 "Model/W_d": wandb.Histogram(self.dict.W_d.detach().cpu()),
                 "Model/b_e": wandb.Histogram(self.dict.b_e.detach().cpu()),

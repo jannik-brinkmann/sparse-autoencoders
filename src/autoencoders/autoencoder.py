@@ -32,49 +32,50 @@ class UntiedSAE(Dict, nn.Module):
         self.activation_size = activation_size
         self.dict_size = dict_size
         
-        self.W_e = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.dict_size, self.activation_size)))
-        self.W_d = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.activation_size, self.dict_size)))
+        self.W_e = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.activation_size, self.dict_size)))
+        self.W_d = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.dict_size, self.activation_size)))
         self.b_e = nn.Parameter(torch.zeros(self.dict_size))
         self.b_d = nn.Parameter(torch.zeros(self.activation_size))
         
-        # set decoder weights to unit norm
         with torch.no_grad():
             self.W_d.data /= torch.norm(self.W_d.data, dim=1, keepdim=True)
 
-        
-        # norms = self.W_d.norm(dim=-1, keepdim=True)
-        # self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
-        # self.W_dec.data /= torch.norm(self.W_dec.data, dim=1, keepdim=True)
-    
     def encode(self, x, output_pre_activations=False):
         x_bar = x - self.b_d
-        pre_activation = x_bar @ self.W_e.T + self.b_e
-        post_activation = F.relu(pre_activation)
+        activations = einops.einsum(
+                x_bar,
+                self.W_e,
+                "... d_in, d_in d_sae -> ... d_sae",
+            ) + self.b_e
+        features = F.relu(activations)
         if output_pre_activations:
-            return pre_activation, post_activation 
+            return activations, features 
         else: 
-            return post_activation
+            return features
     
     def decode(self, f):
-        # Normalize the weights
-        #norms = self.W_d.norm(dim=-1, keepdim=True)
-        #self.W_d.data = self.W_d / torch.clamp(norms, 1e-8)
-        return f @ self.W_d.T + self.b_d
+        reconstructions = einops.einsum(
+                f,
+                self.W_d,
+                "... d_sae, d_sae d_in -> ... d_in",
+            ) + self.b_d
+        return reconstructions
     
     def forward(self, x):
         return self.decode(self.encode(x))
     
     @torch.no_grad()
-    def set_decoder_weights_and_grad_to_unit_norm(self):
+    def set_decoder_norm_to_unit_norm(self):
+        self.W_d.data /= torch.norm(self.W_d.data, dim=1, keepdim=True)
 
-        # # set decoder weight columns to unit norm
-        # W_d_normed = self.W_d / self.W_d.norm(dim=-1, keepdim=True)
-        # self.W_d.data[:] = W_d_normed
+    
+    @torch.no_grad()
+    def remove_gradient_parallel_to_decoder_directions(self):
+        """
+        Update grads so that they remove the parallel component
+            (d_sae, d_in) shape
+        """
 
-        # # set decoder grad to unit norm to avoid discrepancy between gradient used by optimizer and true gradient
-        # W_d_grad_proj = (self.W_d.grad * W_d_normed).sum(-1, keepdim=True) * W_d_normed
-        # self.W_d.grad -= W_d_grad_proj
-        
         parallel_component = einops.einsum(
             self.W_d.grad,
             self.W_d.data,

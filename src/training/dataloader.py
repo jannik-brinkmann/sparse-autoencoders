@@ -34,6 +34,8 @@ class CachedActivationLoader(ActivationLoader):
         self.model = AutoModelForCausalLM.from_pretrained(config.model_name_or_path).to(config.device)
         tokenizer = tokenizer = AutoTokenizer.from_pretrained(self.config.model_name_or_path)
         train_loader, test_loader = self.get_dataloaders(tokenizer)
+        self.n_train_batches = len(train_loader)
+        print("n batches", self.n_train_batches)
         self.test_loader = test_loader
         
         # evaluate if activations for a given config have been cached before
@@ -112,7 +114,6 @@ class CachedActivationLoader(ActivationLoader):
                     _ = model(tokens)
                     for act_name in activation_names:
                         activation_file = self.get_activation_path(batch_idx, split)
-                        #cache_file = os.path.join(cache_location, str(batch_idx)) + ".pt"
                         representation = ret[act_name].output
                         if(isinstance(representation, tuple)):
                             representation = representation[0]
