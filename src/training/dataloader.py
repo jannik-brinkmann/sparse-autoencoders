@@ -10,7 +10,7 @@ from baukit import Trace, TraceDict
 
 
 from .config import TrainingConfig
-from .data_utils import chunk_and_tokenize, load_dataset
+from .utils import chunk_and_tokenize, load_dataset
 
 
 class ActivationLoader(ABC):
@@ -38,7 +38,7 @@ class CachedActivationLoader(ActivationLoader):
         self.test_loader = test_loader
         
         # evaluate if activations for a given config have been cached before
-        cache_folder = f"{config.model_name_or_path}_{config.dataset_name_or_path}_{self.config.hook_point}".replace("/", "_")
+        cache_folder = f"{config.model_name_or_path}_{config.dataset_name_or_path}_{self.config.hook_point}_{self.config.batch_size}_{self.config.ctx_length}".replace("/", "_")
         self.activations_dir = os.path.join(os.path.join(config.cache_dir), cache_folder)
         if not (os.path.exists(self.activations_dir) and os.path.isdir(self.activations_dir)):
             os.makedirs(self.activations_dir, exist_ok=True)

@@ -7,7 +7,7 @@ from .config import TrainingConfig
 from ..autoencoders import UntiedSAE
 from .cache import FeatureCache
 from .optimizer import ConstrainedAdamW
-from .utils import save_config, get_activation_size
+from .utils import save_config
 from ..evaluation import FVU, dead_features, evaluate
 
 
@@ -98,9 +98,9 @@ class Trainer:
         ghost_out = ghost_out*norm_scaling_factor
         # print(f"features_acts_dead_neurons_only: {feature_acts_dead_neurons_only}")
         # print(f"norm_scaling_factor: {norm_scaling_factor}")
-        print(f"L2 norm residual: {l2_norm_residual}")
-        print(f"L2 norm ghost out: {l2_norm_ghost_out}")
-        print(f"size of too low exp activations: {high_enough_activations_mask.sum()}")
+        # print(f"L2 norm residual: {l2_norm_residual}")
+        # print(f"L2 norm ghost out: {l2_norm_ghost_out}")
+        # print(f"size of too low exp activations: {high_enough_activations_mask.sum()}")
         # 3. 
         # residual_centered = residual - residual.mean(dim=0, keepdim=True)
         # mse_loss_ghost_resid = (
@@ -133,17 +133,25 @@ class Trainer:
             dead_feature_mask = self.feature_cache.get().sum(0) == 0
             if dead_feature_mask.any():
                 print("running ghost grads", flush=True)
-                loss += self.ghost_gradients_loss(activations, reconstructions, pre_activations, dead_feature_mask, l2_loss)
+                # activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
+                ghost_grad_loss, ghost_grad_loss_prescaled = self.ghost_gradients_loss(activations, reconstructions, pre_activations, dead_feature_mask, l2_loss)
+                loss += ghost_grad_loss
         
         # backward pass
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
         #self.scheduler.step()
-        self.n_steps += 1
         
         # log training statistics
-        if self.config.use_wandb:
+        if self.config.use_wandb and self.n_steps % self.config.evaluation_interval == 0:
+            wandb.log({"Tokens": self.n_steps * self.config.batch_size * self.config.ctx_length})
+            wandb.log({
+                "Model/W_e": wandb.Histogram(self.dict.W_e.detach().cpu()),
+                "Model/W_d": wandb.Histogram(self.dict.W_d.detach().cpu()),
+                "Model/b_e": wandb.Histogram(self.dict.b_e.detach().cpu()),
+                "Model/b_d": wandb.Histogram(self.dict.b_d.detach().cpu()),
+            })
             wandb.log({
                 "Train/Loss": loss,
                 "Train/L1 Loss": l1_loss,
@@ -151,12 +159,9 @@ class Trainer:
                 "Train/L0": torch.norm(features, 0, dim=-1).mean(),
                 "Train/Dead Features": dead_features(self.feature_cache),
                 "Train/Variance Unexplained": FVU(activations, reconstructions),
-                "Train/Tokens": self.n_steps * self.config.batch_size * self.config.ctx_length,
-                "Model/W_e": wandb.Histogram(self.dict.W_e.detach().cpu()),
-                "Model/W_d": wandb.Histogram(self.dict.W_d.detach().cpu()),
-                "Model/b_e": wandb.Histogram(self.dict.b_e.detach().cpu()),
-                "Model/b_d": wandb.Histogram(self.dict.b_d.detach().cpu()),
             })
+        
+        self.n_steps += 1
 
     def save_weights(self, filename="checkpoint.pt"):
         filepath = os.path.join(self.checkpoint_dir, filename)

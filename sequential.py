@@ -5,6 +5,7 @@ from datetime import datetime
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import wandb
+os.environ["WANDB__SERVICE_WAIT"] = "300"
 
 from src.evaluation import evaluate
 
@@ -14,21 +15,21 @@ from src import CachedActivationLoader, Trainer, TrainingConfig
 config = TrainingConfig(
     
         # Base Model and Dataset
-        model_name_or_path = "gpt2", # "EleutherAI/pythia-70m-deduped",
-        hook_point = "transformer.h.3", #  "gpt_neox.layers.3",
+        model_name_or_path = "EleutherAI/pythia-70m-deduped", # "EleutherAI/pythia-70m-deduped",
+        hook_point = "gpt_neox.layers.3", # "transformer.h.3"
         dataset_name_or_path = "Elriggs/openwebtext-100k", # "jbrinkma/pile-500k",
         
         # SAE Parameters
-        expansion_factor = 32,
+        expansion_factor = 4,
         b_dec_init_method = "",
         
         # Training Parameters
         batch_size = 32,  # effective batch size: batch_size * context_length (64 * 128)
-        ctx_length = 128,
-        lr = 4e-4,
+        ctx_length = 256,
+        lr = 0.001,
         lr_warmup_steps = 5000,
-        sparsity_coefficient = 8e-5, 
-        evaluation_interval = 384,
+        sparsity_coefficient = 0.003, 
+        evaluation_interval = 200,
         
         # Activation Buffer
         n_tokens_in_feature_cache = 5e5,
@@ -39,14 +40,15 @@ config = TrainingConfig(
         # I/O
         output_dir = "outputs",
         cache_dir = "cache",
-        checkpoint_interval = 32,
+        checkpoint_interval = 200,
         
         # Weights and Biases
         use_wandb = True,
         wandb_entity = "jannik-brinkmann",
         wandb_project = "sparse-autoencoder",
+        wandb_group = "ghost_grads_replication"
     )
-configs = [config]
+configs = [config, config, config]
 
 
 def training(config):
@@ -90,7 +92,7 @@ def training(config):
                 activation_loader.model,
                 config.device
             )
-            wandb.log(metrics, step=i)
+            wandb.log(metrics) #, step=i)
         
         # get activations
         activations = activation_loader.get(i, split="train")
