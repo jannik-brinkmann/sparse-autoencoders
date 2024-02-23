@@ -56,10 +56,10 @@ class Trainer:
         )
         # optimizer.betas = (beta1, beta2)
         # optimizer.weight_decay = weight_decay
-        self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-            optimizer=self.optimizer,
-            lr_lambda=lambda steps: min(1.0, (steps + 1) / config.lr_warmup_steps),
-        )
+        # self.scheduler = torch.optim.lr_scheduler.LambdaLR(
+        #     optimizer=self.optimizer,
+        #     lr_lambda=lambda steps: min(1.0, (steps + 1) / config.lr_warmup_steps),
+        # )
         
     def compute_loss(self, activations, features, reconstructions, normalize=False):
         l2_loss = (activations - reconstructions).pow(2).mean()
@@ -117,10 +117,9 @@ class Trainer:
         
     def step(self, activations: torch.Tensor):
         
-        self.dict.set_decoder_norm_to_unit_norm()
-        
         # forward pass
-        pre_activations, features = self.dict.encode(activations, output_pre_activations=True)
+        pre_activations = self.dict.encode_pre_activation(activations)
+        features = torch.nn.functional.relu(pre_activations)
         reconstructions = self.dict.decode(features)
         
         # cache feature activations
@@ -139,9 +138,8 @@ class Trainer:
         # backward pass
         self.optimizer.zero_grad()
         loss.backward()
-        self.dict.remove_gradient_parallel_to_decoder_directions()
         self.optimizer.step()
-        self.scheduler.step()
+        #self.scheduler.step()
         self.n_steps += 1
         
         # log training statistics
