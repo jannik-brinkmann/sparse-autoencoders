@@ -9,7 +9,7 @@ os.environ["WANDB__SERVICE_WAIT"] = "300"
 
 from src.evaluation import evaluate
 
-from src import CachedActivationLoader, Trainer, TrainingConfig
+from src import CachedActivationLoader, Trainer, TrainingConfig, get_configs
 
 
 config = TrainingConfig(
@@ -26,9 +26,9 @@ config = TrainingConfig(
         # Training Parameters
         batch_size = 32,  # effective batch size: batch_size * context_length (64 * 128)
         ctx_length = 256,
-        lr = 0.001,
+        lr = 1e-3,
         lr_warmup_steps = 5000,
-        sparsity_coefficient = 0.003, 
+        sparsity_coefficient = 3e-3, 
         evaluation_interval = 200,
         
         # Activation Buffer
@@ -44,68 +44,26 @@ config = TrainingConfig(
         
         # Weights and Biases
         use_wandb = True,
-        wandb_entity = "jannik-brinkmann",
-        wandb_project = "sparse-autoencoder",
-        wandb_group = "ghost_grads_replication"
+        wandb_entity = "best_sae",
+        wandb_project = "best_sae",
+        wandb_group = ""
     )
-configs = [config, config, config]
-
-
-def training(config):
-    
-    # generate a UUID for the training run
-    wandb_name = datetime.now().strftime("%Y%m%d%H%M%S%f")
-    config = replace(config, wandb_name=wandb_name)
-    run_dir = os.path.join("outputs", wandb_name)
-    os.makedirs(run_dir, exist_ok=True)
-    
-    # determine activation size
-    activation_loader = CachedActivationLoader(config)
-    activation_size = activation_loader.get_activation_size()
-    n_batches = activation_loader.n_train_batches
-    config = replace(config, activation_size=activation_size)
-    config = replace(config, n_steps=n_batches)
-    
-    # initialize Trainer
-    trainer = Trainer(config)  
-    
-    # initialize the weights and biases projects
-    if config.use_wandb:
-        wandb.init(
-            entity=config.wandb_entity,
-            project=config.wandb_project, 
-            name=config.wandb_name,
-            group=config.wandb_group
-        )
-    
-    # training loop
-    for i in range(config.n_steps):
-        
-        # evaluate the autoencoder
-        if i % config.evaluation_interval == 0:
-            
-            metrics = evaluate(
-                config.hook_point,
-                activation_loader.test_loader,
-                trainer.dict,
-                trainer.feature_cache,
-                activation_loader.model,
-                config.device
-            )
-            wandb.log(metrics) #, step=i)
-        
-        # get activations
-        activations = activation_loader.get(i, split="train")
-        
-        # update the autoencoder
-        trainer.step(activations.to(config.device))
-        
-    if config.use_wandb:
-        wandb.finish() 
-            
         
 if __name__ == "__main__":
     
-    for config in configs:
-        training(config)
+    configs = []
+    
+    config = replace(config, wandb_group="LR_sweep_v1_with_Scheduler")
+    configs += get_configs(  # LR sweep
+        config, "lr", [0.01, 0.008, 0.006, 0.004, 0.002, 0.001, 0.0008, 0.0006, 0.0004, 0.0002, 0.0001]
+    )
+    
+    # config = replace(config, wandb_group="L1_sweep_v0")
+    # configs += get_configs(  # L1 sweep
+    #     config, "sparsity_coefficient", [0.01, 0.008, 0.006, 0.004, 0.002, 0.001, 0.0008, 0.0006, 0.0004, 0.0002, 0.0001]
+    # )
+    
+    for c in configs:
+        trainer = Trainer(c)  
+        trainer.fit()
     

@@ -1,5 +1,5 @@
 import torch
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, replace
 
 
 @dataclass
@@ -21,6 +21,7 @@ class TrainingConfig:
     batch_size: int = 64
     ctx_length: int = 256
     lr: float = 4e-4
+    min_lr: float = 0.0
     lr_warmup_steps: int = 1000
     sparsity_coefficient: float = 0.00008
     evaluation_interval: int = 400
@@ -44,3 +45,17 @@ class TrainingConfig:
     wandb_project: str = "sparse-autoencoder"
     wandb_name: str = ""
     wandb_group: str = ""
+
+
+def get_configs(
+    config: TrainingConfig, 
+    attr_name: str,
+    values: list, 
+):
+    configs = []
+    for value in values: 
+        config_dict = asdict(config)
+        config_dict[attr_name] = value
+        configs.append(replace(config, **config_dict))
+    return configs
+        

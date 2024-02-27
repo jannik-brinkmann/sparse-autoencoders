@@ -1,11 +1,16 @@
 import os
 
+import math
 import torch
 import wandb
+from dataclasses import replace
+from datetime import datetime
+from tqdm import tqdm
 
 from .config import TrainingConfig
 from ..autoencoders import UntiedSAE
 from .cache import FeatureCache
+from .dataloader import CachedActivationLoader
 from .optimizer import ConstrainedAdamW
 from .utils import save_config
 from ..evaluation import FVU, dead_features, evaluate
@@ -27,10 +32,18 @@ class Trainer:
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         save_config(self.config, self.checkpoint_dir)
         
+        # determine activation size
+        self.activation_loader = CachedActivationLoader(self.config)
+        activation_size = self.activation_loader.get_activation_size()
+        n_batches = self.activation_loader.n_train_batches
+        self.config = replace(self.config, activation_size=activation_size)
+        self.config = replace(self.config, n_steps=n_batches)
+        
         # initialize the sparse autoencoder
-        dict_size = config.expansion_factor * config.activation_size
+        print(config)
+        dict_size = self.config.expansion_factor * self.config.activation_size
         self.dict = UntiedSAE(
-            activation_size=config.activation_size, 
+            activation_size=self.config.activation_size, 
             dict_size=dict_size
         )
         self.dict.to(self.config.device)
@@ -60,6 +73,21 @@ class Trainer:
         #     optimizer=self.optimizer,
         #     lr_lambda=lambda steps: min(1.0, (steps + 1) / config.lr_warmup_steps),
         # )
+        
+    # learning rate decay scheduler (cosine with warmup)
+    def get_lr(self):
+        lr_decay_iters = self.n_steps
+        # 1) linear warmup for warmup_iters steps
+        if self.n_steps < self.config.lr_warmup_steps:
+            return self.config.lr * self.n_steps / self.config.lr_warmup_steps
+        # 2) if it > lr_decay_iters, return min learning rate
+        if self.n_steps > lr_decay_iters:
+            return self.config.min_lr
+        # 3) in between, use cosine decay down to min learning rate
+        decay_ratio = (self.n_steps - self.config.lr_warmup_steps) / (lr_decay_iters - self.config.lr_warmup_steps)
+        assert 0 <= decay_ratio <= 1
+        coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
+        return self.config.min_lr + coeff * (self.config.lr - self.config.min_lr)
         
     def compute_loss(self, activations, features, reconstructions, normalize=False):
         l2_loss = (activations - reconstructions).pow(2).mean()
@@ -117,6 +145,11 @@ class Trainer:
         
     def step(self, activations: torch.Tensor):
         
+        # determine and set the learning rate for this iteration
+        lr = self.get_lr()
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = lr
+        
         # forward pass
         pre_activations = self.dict.encode_pre_activation(activations)
         features = torch.nn.functional.relu(pre_activations)
@@ -132,7 +165,6 @@ class Trainer:
         if self.config.use_ghost_grads:
             dead_feature_mask = self.feature_cache.get().sum(0) == 0
             if dead_feature_mask.any():
-                print("running ghost grads", flush=True)
                 # activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
                 ghost_grad_loss, ghost_grad_loss_prescaled = self.ghost_gradients_loss(activations, reconstructions, pre_activations, dead_feature_mask, l2_loss)
                 loss += ghost_grad_loss
@@ -153,6 +185,7 @@ class Trainer:
                 "Model/b_d": wandb.Histogram(self.dict.b_d.detach().cpu()),
             })
             wandb.log({
+                "Train/LR": lr, 
                 "Train/Loss": loss,
                 "Train/L1 Loss": l1_loss,
                 "Train/L2 Loss": l2_loss,
@@ -162,6 +195,49 @@ class Trainer:
             })
         
         self.n_steps += 1
+    
+    def fit(self):
+        
+        # generate a UUID for the training run
+        wandb_name = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        self.config = replace(self.config, wandb_name=wandb_name)
+        run_dir = os.path.join("outputs", wandb_name)
+        os.makedirs(run_dir, exist_ok=True)
+        
+        # initialize the weights and biases projects
+        if self.config.use_wandb:
+            wandb.init(
+                entity=self.config.wandb_entity,
+                project=self.config.wandb_project, 
+                name=self.config.wandb_name,
+                group=self.config.wandb_group,
+                config=self.config
+            )
+        
+        # training loop
+        for i in tqdm(range(self.config.n_steps)):
+            
+            # evaluate the autoencoder
+            if i % self.config.evaluation_interval == 0:
+                
+                metrics = evaluate(
+                    self.config.hook_point,
+                    self.activation_loader.test_loader,
+                    self.dict,
+                    self.feature_cache,
+                    self.activation_loader.model,
+                    self.config.device
+                )
+                wandb.log(metrics, step=i)
+            
+            # get activations
+            activations = self.activation_loader.get(i, split="train")
+            
+            # update the autoencoder
+            self.step(activations.to(self.config.device))
+            
+        if self.config.use_wandb:
+            wandb.finish() 
 
     def save_weights(self, filename="checkpoint.pt"):
         filepath = os.path.join(self.checkpoint_dir, filename)
