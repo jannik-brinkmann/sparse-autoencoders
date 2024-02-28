@@ -38,10 +38,7 @@ class UntiedSAE(Dict, nn.Module):
         self.b_d = nn.Parameter(torch.zeros(self.activation_size))
 
         # set decoder weights to unit norm
-        # norms = self.W_d.norm(dim=-1, keepdim=True)
         norms = self.W_d.norm(dim=0, keepdim=True)
-        print(self.W_d.norm(dim=0, keepdim=False).shape)
-        print("norm shape above:", self.dict_size)
         self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
 
     def encode_pre_activation(self, x):

@@ -1,6 +1,6 @@
 import torch
 from dataclasses import dataclass, asdict, replace
-
+from datetime import datetime
 
 @dataclass
 class TrainingConfig:
@@ -16,7 +16,7 @@ class TrainingConfig:
     b_dec_init_method: str = "" 
     
     # Training Parameters
-    n_steps: int = 10
+    n_steps: int = -1
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     batch_size: int = 64
     ctx_length: int = 256
@@ -33,8 +33,6 @@ class TrainingConfig:
     use_ghost_grads: bool = False
     
     # I/O
-    run_id: str = ""
-    pid: str = ""
     output_dir: str = "outputs"
     cache_dir: str = "cache"
     checkpoint_interval: int = 32
@@ -45,6 +43,11 @@ class TrainingConfig:
     wandb_project: str = "sparse-autoencoder"
     wandb_name: str = ""
     wandb_group: str = ""
+    
+class PostTrainingConfig(TrainingConfig):
+    
+    checkpoint_path: str = ""
+    scalar_multiple: bool = False
 
 
 def get_configs(
@@ -54,8 +57,15 @@ def get_configs(
 ):
     configs = []
     for value in values: 
+        
+        # add sweep parameter
         config_dict = asdict(config)
         config_dict[attr_name] = value
-        configs.append(replace(config, **config_dict))
+        config = replace(config, **config_dict)
+        
+        # replace wandb_name
+        wandb_name = datetime.now().strftime("%Y%m%d%H%M%S%f") + f"_{attr_name}_{value}"
+        config = replace(config, wandb_name=wandb_name)
+        configs.append(config)
     return configs
         

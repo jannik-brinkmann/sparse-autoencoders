@@ -2,12 +2,13 @@ import os
 
 import math
 import torch
+import torch.nn as nn
 import wandb
 from dataclasses import replace
 from datetime import datetime
 from tqdm import tqdm
 
-from .config import TrainingConfig
+from .config import TrainingConfig, PostTrainingConfig
 from ..autoencoders import UntiedSAE
 from .cache import FeatureCache
 from .dataloader import CachedActivationLoader
@@ -15,6 +16,15 @@ from .optimizer import ConstrainedAdamW
 from .utils import save_config
 from ..evaluation import FVU, dead_features, evaluate
 
+
+class ScalarMultiple(nn.Module):
+    def __init__(self, num_features):
+        super(ScalarMultiple, self).__init__()
+        self.scalars = nn.Parameter(torch.ones(num_features))
+
+    def forward(self, x):
+        return x * self.scalars
+    
 
 class Trainer:
     """Trainer for a Sparse Autoencoder."""
@@ -26,9 +36,11 @@ class Trainer:
         super().__init__()
         self.config = config
         
-        # create output folder
-        run_dir = os.path.join(config.output_dir, config.run_id)
-        self.checkpoint_dir = os.path.join(run_dir, config.pid)
+        # generate a UUID for the training run
+        if not self.config.wandb_name:
+            wandb_name = datetime.now().strftime("%Y%m%d%H%M%S%f")
+            self.config = replace(self.config, wandb_name=wandb_name)
+        self.checkpoint_dir = os.path.join(self.config.output_dir, self.config.wandb_name)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         save_config(self.config, self.checkpoint_dir)
         
@@ -40,7 +52,6 @@ class Trainer:
         self.config = replace(self.config, n_steps=n_batches)
         
         # initialize the sparse autoencoder
-        print(config)
         dict_size = self.config.expansion_factor * self.config.activation_size
         self.dict = UntiedSAE(
             activation_size=self.config.activation_size, 
@@ -67,16 +78,12 @@ class Trainer:
             constrained_param=self.dict.W_d,
             lr=config.lr
         )
-        # optimizer.betas = (beta1, beta2)
-        # optimizer.weight_decay = weight_decay
-        # self.scheduler = torch.optim.lr_scheduler.LambdaLR(
-        #     optimizer=self.optimizer,
-        #     lr_lambda=lambda steps: min(1.0, (steps + 1) / config.lr_warmup_steps),
-        # )
+        # self.optimizer.betas = (beta1, beta2)
+        # self.optimizer.weight_decay = weight_decay
         
     # learning rate decay scheduler (cosine with warmup)
     def get_lr(self):
-        lr_decay_iters = self.n_steps
+        lr_decay_iters = self.config.n_steps
         # 1) linear warmup for warmup_iters steps
         if self.n_steps < self.config.lr_warmup_steps:
             return self.config.lr * self.n_steps / self.config.lr_warmup_steps
@@ -173,7 +180,6 @@ class Trainer:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        #self.scheduler.step()
         
         # log training statistics
         if self.config.use_wandb and self.n_steps % self.config.evaluation_interval == 0:
@@ -197,12 +203,6 @@ class Trainer:
         self.n_steps += 1
     
     def fit(self):
-        
-        # generate a UUID for the training run
-        wandb_name = datetime.now().strftime("%Y%m%d%H%M%S%f")
-        self.config = replace(self.config, wandb_name=wandb_name)
-        run_dir = os.path.join("outputs", wandb_name)
-        os.makedirs(run_dir, exist_ok=True)
         
         # initialize the weights and biases projects
         if self.config.use_wandb:
@@ -229,6 +229,7 @@ class Trainer:
                     self.config.device
                 )
                 wandb.log(metrics, step=i)
+                self.save_weights()
             
             # get activations
             activations = self.activation_loader.get(i, split="train")
@@ -241,4 +242,77 @@ class Trainer:
 
     def save_weights(self, filename="checkpoint.pt"):
         filepath = os.path.join(self.checkpoint_dir, filename)
-        torch.save(self.dict.state_dict(), filepath)
+        torch.save(self.dict, filepath)
+        
+    def load_weights(self, path):
+        self.dict = torch.load(path)
+
+
+class PostTrainer(Trainer):
+    
+    def __init__(self, config: PostTrainingConfig) -> None:
+        super().__init__(config)
+        
+        self.load_weights(self.config.checkpoint_path)
+        
+        if self.config.scalar_multiple:
+            n_features = config.activation_size * config.expansion_factor
+            self.scalar_multiple = ScalarMultiple(n_features).to(config.device)
+            self.optimizer = torch.optim.AdamW(self.scalar_multiple.parameters(), lr=self.config.lr)
+            
+    def step(self, activations: torch.Tensor):
+        
+        # determine and set the learning rate for this iteration
+        lr = self.get_lr()
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = lr
+        
+        # forward pass
+        pre_activations = self.dict.encode_pre_activation(activations)
+        if self.config.scalar_multiple:
+            pre_activations = self.scalar_multiple(pre_activations)
+        features = torch.nn.functional.relu(pre_activations)
+        reconstructions = self.dict.decode(features)
+        
+        # cache feature activations
+        self.feature_cache.push(features.sum(dim=0, keepdim=True).cpu())
+        
+        # compute loss
+        loss, l2_loss, l1_loss = self.compute_loss(activations, features, reconstructions)
+        
+        # ghost gradients
+        if self.config.use_ghost_grads:
+            dead_feature_mask = self.feature_cache.get().sum(0) == 0
+            if dead_feature_mask.any():
+                # activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
+                ghost_grad_loss, ghost_grad_loss_prescaled = self.ghost_gradients_loss(activations, reconstructions, pre_activations, dead_feature_mask, l2_loss)
+                loss += ghost_grad_loss
+        
+        # backward pass
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+        # log training statistics
+        if self.config.use_wandb and self.n_steps % self.config.evaluation_interval == 0:
+            wandb.log({"Tokens": self.n_steps * self.config.batch_size * self.config.ctx_length})
+            wandb.log({
+                "Model/W_e": wandb.Histogram(self.dict.W_e.detach().cpu()),
+                "Model/W_d": wandb.Histogram(self.dict.W_d.detach().cpu()),
+                "Model/b_e": wandb.Histogram(self.dict.b_e.detach().cpu()),
+                "Model/b_d": wandb.Histogram(self.dict.b_d.detach().cpu()),
+            })
+            wandb.log({
+                "Train/LR": lr, 
+                "Train/Loss": loss,
+                "Train/L1 Loss": l1_loss,
+                "Train/L2 Loss": l2_loss,
+                "Train/L0": torch.norm(features, 0, dim=-1).mean(),
+                "Train/Dead Features": dead_features(self.feature_cache),
+                "Train/Variance Unexplained": FVU(activations, reconstructions),
+            })
+        
+        self.n_steps += 1
+            
+        
+            
