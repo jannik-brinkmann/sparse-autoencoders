@@ -74,6 +74,13 @@ class Trainer:
         #     lr_lambda=lambda steps: min(1.0, (steps + 1) / config.lr_warmup_steps),
         # )
         
+        # activation function 
+        self.activation_function = None 
+        if config.activation_function == "ReLU":
+            self.activation_function = torch.nn.functional.relu
+        elif config.activation_function == "sigmoid":
+            self.activation_function = torch.nn.functional.sigmoid
+
     # learning rate decay scheduler (cosine with warmup)
     def get_lr(self):
         lr_decay_iters = self.n_steps
@@ -152,7 +159,7 @@ class Trainer:
         
         # forward pass
         pre_activations = self.dict.encode_pre_activation(activations)
-        features = torch.nn.functional.relu(pre_activations)
+        features = self.activation_function(pre_activations)
         reconstructions = self.dict.decode(features)
         
         # cache feature activations

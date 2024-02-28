@@ -9,7 +9,7 @@ os.environ["WANDB__SERVICE_WAIT"] = "300"
 
 from src.evaluation import evaluate
 
-from src import CachedActivationLoader, Trainer, TrainingConfig, get_configs
+from src.training import CachedActivationLoader, Trainer, TrainingConfig, get_configs
 
 
 config = TrainingConfig(
@@ -18,7 +18,7 @@ config = TrainingConfig(
         model_name_or_path = "EleutherAI/pythia-70m-deduped", # "EleutherAI/pythia-70m-deduped",
         hook_point = "gpt_neox.layers.3", # "transformer.h.3"
         dataset_name_or_path = "Elriggs/openwebtext-100k", # "jbrinkma/pile-500k",
-        
+        activation_function="ReLU",
         # SAE Parameters
         expansion_factor = 4,
         b_dec_init_method = "",

@@ -10,7 +10,8 @@ class TrainingConfig:
     hook_point: str = ""
     dataset_name_or_path: str = ""
     activation_size: int = -1
-    
+    activation_function: str = ""
+
     # SAE Parameters
     expansion_factor: int = 32
     b_dec_init_method: str = "" 
