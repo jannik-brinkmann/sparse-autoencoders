@@ -1,7 +1,6 @@
-baukit==0.0.1
+baukit @ git+https://github.com/davidbau/baukit@e14a18a6ad6cf9e0d6a5dc7a97e671e393c01682
 datasets==2.16.1
 einops==0.7.0
 torch==2.1.2
 tqdm==4.65.0
-tqdm==4.66.1
 transformers==4.37.2
