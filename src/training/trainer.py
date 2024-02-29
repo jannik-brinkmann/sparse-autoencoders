@@ -52,11 +52,7 @@ class Trainer:
         self.config = replace(self.config, n_steps=n_batches)
         
         # initialize the sparse autoencoder
-        dict_size = self.config.expansion_factor * self.config.activation_size
-        self.dict = UntiedSAE(
-            activation_size=self.config.activation_size, 
-            dict_size=dict_size
-        )
+        self.dict = UntiedSAE(self.config)
         self.dict.to(self.config.device)
         
         #if config.b_dec_init_method == "geometric_median":
@@ -66,6 +62,7 @@ class Trainer:
         # initialize the feature cache
         tokens_per_batch = config.batch_size * config.ctx_length
         cache_size = int(config.n_tokens_in_feature_cache // tokens_per_batch)
+        dict_size = self.config.expansion_factor * self.config.activation_size
         self.feature_cache = FeatureCache(
             cache_size=cache_size,
             dict_size=dict_size

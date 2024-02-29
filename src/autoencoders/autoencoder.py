@@ -27,10 +27,12 @@ class UntiedSAE(Dict, nn.Module):
     Decoder: \hat(x) = W_d(f) + b_d
     """
 
-    def __init__(self, activation_size, dict_size):
+    def __init__(self, config):
         super().__init__()
-        self.activation_size = activation_size
-        self.dict_size = dict_size
+        self.config = config
+        
+        self.activation_size=self.config.activation_size
+        self.dict_size = self.config.expansion_factor * self.config.activation_size
         
         self.W_e = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.dict_size, self.activation_size)))
         self.W_d = nn.Parameter(torch.nn.init.kaiming_uniform_(torch.empty(self.activation_size, self.dict_size)))
