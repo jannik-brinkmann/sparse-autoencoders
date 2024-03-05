@@ -18,7 +18,7 @@ config = TrainingConfig(
         model_name_or_path = "EleutherAI/pythia-70m-deduped", # "EleutherAI/pythia-70m-deduped",
         hook_point = "gpt_neox.layers.3", # "transformer.h.3"
         dataset_name_or_path = "Elriggs/openwebtext-100k", # "jbrinkma/pile-500k",
-        activation_function="ReLU",
+        activation_function="sigmoid",
         # SAE Parameters
         expansion_factor = 4,
         b_dec_init_method = "",
