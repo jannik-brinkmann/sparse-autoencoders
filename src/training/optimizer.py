@@ -5,8 +5,8 @@ class ConstrainedAdamW(torch.optim.Adam):
     A variant of Adam where some of the parameters are constrained to have unit norm.
     From Sam Marks
     """
-    def __init__(self, params, constrained_param, lr):
-        super().__init__(params, lr=lr)
+    def __init__(self, params, constrained_param, lr, betas):
+        super().__init__(params, lr=lr, betas=betas)
         self.constrained_param = constrained_param
     
     def step(self, closure=None):

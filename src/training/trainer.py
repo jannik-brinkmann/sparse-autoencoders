@@ -73,7 +73,8 @@ class Trainer:
         self.optimizer = ConstrainedAdamW(
             params=self.dict.parameters(),
             constrained_param=self.dict.W_d,
-            lr=config.lr
+            lr=config.lr,
+            betas=(self.config.beta1, self.config.beta2)
         )
         # self.optimizer.betas = (beta1, beta2)
         # self.optimizer.weight_decay = weight_decay

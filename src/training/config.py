@@ -26,6 +26,8 @@ class TrainingConfig:
     lr_warmup_steps: int = 1000
     sparsity_coefficient: float = 0.00008
     evaluation_interval: int = 400
+    beta1: float = 0.9
+    beta2: float = 0.999
     
     # Activation Buffer
     n_tokens_in_feature_cache: int = 1e6 
