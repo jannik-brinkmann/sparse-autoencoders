@@ -84,6 +84,8 @@ class Trainer:
             self.activation_function = torch.nn.functional.hardsigmoid
         elif config.activation_function == "ReLU6":
             self.activation_function = torch.nn.functional.relu6
+        elif config.activation_function == "Softplus":
+            self.activation_function = torch.nn.functional.softplus
 
     # learning rate decay scheduler (cosine with warmup)
     def get_lr(self):
