@@ -114,6 +114,8 @@ def dead_features(feature_buffer, threshold=0):
     # number of features that have not been activated across the 
     return ((feature_buffer.get().sum(dim=0) <= threshold).sum() / feature_buffer.get().shape[1]).item()
 
+
+
 def feature_frequency(feature_buffer):
     
     # counting the number of times each feature was activated (non-zero)
@@ -121,7 +123,23 @@ def feature_frequency(feature_buffer):
     activation_count = (activations != 0).sum(dim=0)
     
     # compute average number of activations per feature
-    return activation_count.sum().item()/ activations.shape[1]
+    return activation_count.sum().item() / activations.shape[1]
+
+def feature_frequency_hist(feature_buffer):
+    
+    # counting the number of times each feature was activated (non-zero)
+    activations = feature_buffer.get()
+    activation_count = (activations != 0).sum(dim=0)
+    
+    # convert to percentage
+    percentage = activation_count / activations.shape[0]
+    return percentage.tolist()
+
+def count_active_features_below_threshold(feature_buffer, threshold=0):
+    frequencies = feature_frequency_hist(feature_buffer)
+    num_features = sum([1 for f in frequencies if ((f > 0) & (f <= threshold))])
+    proportion = num_features / feature_buffer.get().shape[1]
+    return proportion
 
 def feature_magnitude(feature_buffer):
     

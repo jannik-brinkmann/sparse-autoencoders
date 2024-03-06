@@ -7,7 +7,26 @@ from transformers import PreTrainedModel
 
 from ..autoencoders import Dict
 from ..training.cache import FeatureCache
-from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance, cosine_sim
+from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance, cosine_sim, feature_frequency_hist, count_active_features_below_threshold
+import wandb
+import numpy as np
+
+def average_per_position(list_of_lists):
+    # Number of sublists
+    num_lists = len(list_of_lists)
+    # Assuming all sublists have the same length
+    sublist_length = len(list_of_lists[0])
+    
+    averages = []
+    for i in range(sublist_length):
+        # Compute the sum for each position i across all sublists
+        sum_at_i = sum(sublist[i] for sublist in list_of_lists)
+        # Compute the average for position i
+        avg_at_i = sum_at_i / num_lists
+        # Append the average to the result list
+        averages.append(avg_at_i)
+        
+    return averages
 
 
 def evaluate(
@@ -25,8 +44,13 @@ def evaluate(
 
         "Losses/L1", "Losses/MSE", 
 
-        "Sparsity/Dead Features", "Sparsity/Feature Frequency",
+        "Sparsity/Dead Features", "Sparsity/Feature Frequency", 
+        
+        "Dying Features/Threshold 0.00001", "Dying Features/Threshold 0.0001", "Dying Features/Threshold 0.001", "Dying Features/Threshold 0.01", "Dying Features/Threshold 0.1"
         ]}
+    
+    list_metrics = {k: [] for k in ["Sparsity Hist/Feature Frequency Hist"]}
+    
     for idx, batch in enumerate(data_loader):
         if(idx == 5):
             break
@@ -75,11 +99,20 @@ def evaluate(
 
                 metrics["Sparsity/Dead Features"].append(dead_features(feature_buffer))
                 metrics["Sparsity/Feature Frequency"].append(feature_frequency(feature_buffer))
+                list_metrics["Sparsity Hist/Feature Frequency Hist"].append(feature_frequency_hist(feature_buffer))
+                
+                metrics["Dying Features/Threshold 0.00001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.00001))
+                metrics["Dying Features/Threshold 0.0001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.0001))
+                metrics["Dying Features/Threshold 0.001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.001))
+                metrics["Dying Features/Threshold 0.01"].append(count_active_features_below_threshold(feature_buffer, threshold=0.01))
+                metrics["Dying Features/Threshold 0.1"].append(count_active_features_below_threshold(feature_buffer, threshold=0.1))
                 # metrics["Feature Magnitude"].append(feature_magnitude(feature_buffer))
 
     # compute average of each metric
                 
     metrics = {k: sum(v) / len(v) for k, v in metrics.items()}
+    list_metrics = {k: average_per_position(v) for k, v in list_metrics.items()}
+    list_metrics = {k: wandb.Histogram(v) for k, v in list_metrics.items()}
 
     #convert each to list or item() if possible
     for k, v in metrics.items():
@@ -91,4 +124,6 @@ def evaluate(
                 metrics[k] = v.tolist()
         else:
             metrics[k] = v
-    return metrics
+            
+    all_metrics = {**metrics, **list_metrics}
+    return all_metrics
