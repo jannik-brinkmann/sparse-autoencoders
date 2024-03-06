@@ -80,10 +80,14 @@ class Trainer:
             self.activation_function = torch.nn.functional.relu
         elif config.activation_function == "sigmoid":
             self.activation_function = torch.nn.functional.sigmoid
+        elif config.activation_function == "hardsigmoid":
+            self.activation_function = torch.nn.functional.hardsigmoid
+        elif config.activation_function == "ReLU6":
+            self.activation_function = torch.nn.functional.relu6
 
     # learning rate decay scheduler (cosine with warmup)
     def get_lr(self):
-        lr_decay_iters = self.n_steps
+        lr_decay_iters = self.config.n_steps
         # 1) linear warmup for warmup_iters steps
         if self.n_steps < self.config.lr_warmup_steps:
             return self.config.lr * self.n_steps / self.config.lr_warmup_steps
