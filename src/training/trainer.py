@@ -150,9 +150,9 @@ class Trainer:
     def step(self, activations: torch.Tensor):
         
         # determine and set the learning rate for this iteration
-        lr = self.get_lr()
-        for param_group in self.optimizer.param_groups:
-            param_group["lr"] = lr
+        # lr = self.get_lr()
+        # for param_group in self.optimizer.param_groups:
+        #     param_group["lr"] = lr
         
         # forward pass
         pre_activations = self.dict.encode_pre_activation(activations)
@@ -188,7 +188,7 @@ class Trainer:
                 "Model/b_d": wandb.Histogram(self.dict.b_d.detach().cpu()),
             })
             wandb.log({
-                "Train/LR": lr, 
+                # "Train/LR": lr, 
                 "Train/Loss": loss,
                 "Train/L1 Loss": l1_loss,
                 "Train/L2 Loss": l2_loss,
