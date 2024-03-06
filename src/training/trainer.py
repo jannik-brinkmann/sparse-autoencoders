@@ -101,7 +101,10 @@ class Trainer:
         #     torch.pow((reconstructions - activations.float()), 2)
         #     / (x_centred**2).sum(dim=-1, keepdim=True).sqrt()
         # ).mean()
-        l1_loss = torch.norm(features, 1, dim=-1).mean()
+        if self.config.l1_sqrt:
+            l1_loss = torch.norm(torch.sqrt(features), 1, dim=-1).mean()
+        else:
+            l1_loss = torch.norm(features, 1, dim=-1).mean()
         loss = l2_loss + self.config.sparsity_coefficient * l1_loss
         return loss, l2_loss, l1_loss
     

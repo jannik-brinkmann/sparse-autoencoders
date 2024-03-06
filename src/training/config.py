@@ -5,6 +5,8 @@ from datetime import datetime
 @dataclass
 class TrainingConfig:
     
+    seed: int = 42
+    
     # Base Model and Dataset
     model_name_or_path: str = ""
     hook_point: str = ""
@@ -28,6 +30,7 @@ class TrainingConfig:
     evaluation_interval: int = 400
     beta1: float = 0.9
     beta2: float = 0.999
+    l1_sqrt: bool = False
     
     # Activation Buffer
     n_tokens_in_feature_cache: int = 1e6 
@@ -67,7 +70,7 @@ def get_configs(
         config = replace(config, **config_dict)
         
         # replace wandb_name
-        wandb_name = datetime.now().strftime("%Y%m%d%H%M%S%f") + f"_{attr_name}_{value}"
+        wandb_name = f"{attr_name}_{value}_" + datetime.now().strftime("%Y%m%d%H%M%S%f")
         config = replace(config, wandb_name=wandb_name)
         configs.append(config)
     return configs
