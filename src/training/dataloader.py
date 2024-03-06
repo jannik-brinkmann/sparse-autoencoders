@@ -32,13 +32,13 @@ class CachedActivationLoader(ActivationLoader):
         
         # initialize model and tokenizer
         self.model = AutoModelForCausalLM.from_pretrained(config.model_name_or_path).to(config.device)
-        tokenizer = tokenizer = AutoTokenizer.from_pretrained(self.config.model_name_or_path)
-        train_loader, test_loader = self.get_dataloaders(tokenizer)
+        tokenizer = AutoTokenizer.from_pretrained(self.config.model_name_or_path)
+        train_loader, test_loader = self.get_dataloaders(tokenizer, self.config.add_bos_token)
         self.n_train_batches = len(train_loader)
         self.test_loader = test_loader
         
         # evaluate if activations for a given config have been cached before
-        cache_folder = f"{config.model_name_or_path}_{config.dataset_name_or_path}_{self.config.hook_point}_{self.config.batch_size}_{self.config.ctx_length}".replace("/", "_")
+        cache_folder = f"{config.model_name_or_path}_{config.dataset_name_or_path}_{self.config.hook_point}_{self.config.batch_size}_{self.config.ctx_length}-{self.config.add_bos_token}".replace("/", "_")
         self.activations_dir = os.path.join(os.path.join(config.cache_dir), cache_folder)
         if not (os.path.exists(self.activations_dir) and os.path.isdir(self.activations_dir)):
             os.makedirs(self.activations_dir, exist_ok=True)
@@ -70,9 +70,9 @@ class CachedActivationLoader(ActivationLoader):
         activation_size = activations.size(-1)
         return activation_size
         
-    def get_dataloaders(self, tokenizer, test_size=0.02):
+    def get_dataloaders(self, tokenizer, add_bos_token, test_size=0.02):
         dataset = load_dataset(self.config.dataset_name_or_path, split="train")
-        token_dataset, _ = chunk_and_tokenize(dataset, tokenizer, max_length=self.config.ctx_length)
+        token_dataset, _ = chunk_and_tokenize(dataset, tokenizer, max_length=self.config.ctx_length, add_bos_token=add_bos_token)
         token_dataset = token_dataset.train_test_split(test_size=test_size)
         train_loader = DataLoader(
             token_dataset["train"], 

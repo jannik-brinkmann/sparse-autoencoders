@@ -42,6 +42,7 @@ def chunk_and_tokenize(
     max_length: int = 2048,
     return_final_batch: bool = False,
     load_from_cache_file: bool = True,
+    add_bos_token: bool = False,
 ) -> Tuple[T, float]:
     """Perform GPT-style chunking and tokenization on a dataset.
 
@@ -60,6 +61,8 @@ def chunk_and_tokenize(
         return_final_batch: Whether to return the final batch, which may be smaller
             than the others.
         load_from_cache_file: Whether to load from the cache file.
+        add_bos_token: Whether to prepend a BOS token before each sample. 
+        
 
     Returns:
         * The chunked and tokenized dataset.
@@ -69,7 +72,12 @@ def chunk_and_tokenize(
 
     def _tokenize_fn(x: Dict[str, list]):
         chunk_size = min(tokenizer.model_max_length, max_length)  # tokenizer max length is 1024 for gpt2
+        if add_bos_token:
+            # this is already sufficient, as the tokenizer does left-sided padding with 0, which is the EOS token. 
+            # BUT: needs to be checked for non-pythia models. 
+            chunk_size -= 1 
         sep = tokenizer.eos_token or "<|endoftext|>"
+        sep_token = tokenizer.encode(sep)[0]
         joined_text = sep.join([""] + x[text_key])
         output = tokenizer(
             # Concatenate all the samples together, separated by the EOS token.
@@ -79,7 +87,6 @@ def chunk_and_tokenize(
             return_overflowing_tokens=True,
             truncation=True,
         )
-
         if overflow := output.pop("overflowing_tokens", None):
             # Slow Tokenizers return unnested lists of ints
             assert isinstance(output["input_ids"][0], int)
@@ -89,6 +96,9 @@ def chunk_and_tokenize(
                 overflow[i * chunk_size : (i + 1) * chunk_size] for i in range(math.ceil(len(overflow) / chunk_size))
             ]
             output = {"input_ids": chunks}
+            
+        if add_bos_token:
+            output["input_ids"] = [[sep_token] + c for c in output["input_ids"]] 
 
         total_tokens = sum(len(ids) for ids in output["input_ids"])
         total_bytes = len(joined_text.encode("utf-8"))

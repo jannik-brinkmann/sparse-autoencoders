@@ -10,6 +10,7 @@ class TrainingConfig:
     hook_point: str = ""
     dataset_name_or_path: str = ""
     activation_size: int = -1
+    add_bos_token: bool = False
     
     # SAE Parameters
     expansion_factor: int = 32
