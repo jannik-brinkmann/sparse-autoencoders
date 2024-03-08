@@ -125,15 +125,15 @@ def feature_frequency(feature_buffer):
     # compute average number of activations per feature
     return activation_count.sum().item() / activations.shape[1]
 
-def feature_frequency_hist(feature_buffer):
+def feature_frequency_hist(feature_freq_cache):
     
     # counting the number of times each feature was activated (non-zero)
-    activations = feature_buffer.get()
-    activation_count = (activations != 0).sum(dim=0)
+    activations = feature_freq_cache.get()
+    activation_count = activations.sum(dim=0)
     
     # convert to percentage
-    percentage = activation_count / activations.shape[0]
-    return percentage.tolist()
+    averages = activation_count / activations.shape[0]
+    return averages.tolist()
 
 def count_active_features_below_threshold(feature_buffer, threshold=0):
     frequencies = feature_frequency_hist(feature_buffer)

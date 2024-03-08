@@ -67,6 +67,10 @@ class Trainer:
             cache_size=cache_size,
             dict_size=dict_size
         )
+        self.feature_freq_cache = FeatureCache(
+            cache_size=cache_size,
+            dict_size=dict_size
+        )
         
         # initialize the optimizer and scheduler for training
         self.n_steps = 0
@@ -163,8 +167,11 @@ class Trainer:
         features = torch.nn.functional.relu(pre_activations)
         reconstructions = self.dict.decode(features)
         
-        # cache feature activations
+        # cache feature activations and feature frequency
         self.feature_cache.push(features.sum(dim=0, keepdim=True).cpu())
+        self.feature_freq_cache.push(
+            ((features != 0).sum(dim=0, keepdim=True) / features.shape[0]).cpu()
+        )
         
         # compute loss
         loss, l2_loss, l1_loss = self.compute_loss(activations, features, reconstructions)
@@ -226,6 +233,7 @@ class Trainer:
                     self.activation_loader.test_loader,
                     self.dict,
                     self.feature_cache,
+                    self.feature_freq_cache,
                     self.activation_loader.model,
                     self.config.device
                 )

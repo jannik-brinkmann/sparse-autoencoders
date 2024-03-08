@@ -34,6 +34,7 @@ def evaluate(
         data_loader: DataLoader,
         dictionary: Dict, 
         feature_buffer: FeatureCache,
+        feature_freq_cache: FeatureCache,
         model: PreTrainedModel,
         device: str
     ):
@@ -99,7 +100,7 @@ def evaluate(
 
                 metrics["Sparsity/Dead Features"].append(dead_features(feature_buffer))
                 metrics["Sparsity/Feature Frequency"].append(feature_frequency(feature_buffer))
-                list_metrics["Sparsity Hist/Feature Frequency Hist"].append(feature_frequency_hist(feature_buffer))
+                list_metrics["Sparsity Hist/Feature Frequency Hist"].append(feature_frequency_hist(feature_freq_cache))
                 
                 metrics["Dying Features/Threshold 0.00001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.00001))
                 metrics["Dying Features/Threshold 0.0001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.0001))
