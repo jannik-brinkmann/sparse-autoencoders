@@ -7,7 +7,7 @@ from transformers import PreTrainedModel
 
 from ..autoencoders import Dict
 from ..training.cache import FeatureCache
-from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance, cosine_sim, feature_frequency_hist, count_active_features_below_threshold
+from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance, cosine_sim, feature_frequency_hist, count_active_features_below_threshold, feature_similarity
 import wandb
 import numpy as np
 
@@ -48,9 +48,11 @@ def evaluate(
         "Sparsity/Dead Features", "Sparsity/Feature Frequency", 
         
         "Dying Features/Threshold 0.00001", "Dying Features/Threshold 0.0001", "Dying Features/Threshold 0.001", "Dying Features/Threshold 0.01", "Dying Features/Threshold 0.1"
+        
+        "Mean Feature Similarity"
         ]}
     
-    list_metrics = {k: [] for k in ["Sparsity Hist/Feature Frequency Hist"]}
+    list_metrics = {k: [] for k in ["Sparsity Hist/Feature Frequency Hist", "Feature Similarity Hist"]}
     
     for idx, batch in enumerate(data_loader):
         if(idx == 5):
@@ -101,6 +103,10 @@ def evaluate(
                 metrics["Sparsity/Dead Features"].append(dead_features(feature_buffer))
                 metrics["Sparsity/Feature Frequency"].append(feature_frequency(feature_buffer))
                 list_metrics["Sparsity Hist/Feature Frequency Hist"].append(feature_frequency_hist(feature_freq_cache))
+                
+                max_similarities, mean_max_similarity = feature_similarity(dictionary)
+                list_metrics["Feature Similarity Hist"].append(max_similarities)
+                metrics["Mean Feature Similarity"].append(mean_max_similarity)
                 
                 metrics["Dying Features/Threshold 0.00001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.00001))
                 metrics["Dying Features/Threshold 0.0001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.0001))

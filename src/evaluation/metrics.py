@@ -1,7 +1,7 @@
 import torch
 from baukit import Trace
 from transformers import PreTrainedModel
-
+import torch.nn.functional as F
 
 
 def FVU(x, x_hat):
@@ -153,3 +153,32 @@ def feature_magnitude(feature_buffer):
     
     # Calculate the average magnitude per activation
     return sum_of_magnitudes / activation_count
+
+def feature_similarity(sae):
+
+    # Assuming the number of features (dict_size) is accessible from the model's config
+    num_features = sae.dict_size
+
+    # Create one-hot encoded feature vectors for all features
+    identity_matrix = torch.eye(num_features).to("cuda")
+
+    # Decode the one-hot vectors
+    decoded_vectors = sae.decode(identity_matrix)
+
+    # Compute the cosine similarity matrix
+    similarity_matrix = F.cosine_similarity(
+        decoded_vectors.unsqueeze(1), 
+        decoded_vectors.unsqueeze(0), 
+        dim=2
+    )
+
+    # Set the diagonal to zero to exclude self-similarity
+    similarity_matrix.fill_diagonal_(0)
+
+    # Extract the max similarities for each feature (excluding itself)
+    max_similarities = similarity_matrix.max(dim=1).values
+
+    # Compute the mean of these max similarities
+    mean_max_similarity = max_similarities.mean().item()
+    
+    return max_similarities, mean_max_similarity
