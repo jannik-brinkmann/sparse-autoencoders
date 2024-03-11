@@ -6,7 +6,9 @@ import torch.nn as nn
 import wandb
 from dataclasses import replace
 from datetime import datetime
+from baukit import Trace
 from tqdm import tqdm
+from functools import partial
 
 from .config import TrainingConfig, PostTrainingConfig
 from ..autoencoders import UntiedSAE
@@ -14,7 +16,7 @@ from .cache import FeatureCache
 from .dataloader import CachedActivationLoader
 from .optimizer import ConstrainedAdamW
 from .utils import save_config
-from ..evaluation import FVU, dead_features, evaluate
+from ..evaluation import FVU, dead_features, evaluate, feature_similarity_without_bias
 
 
 class ScalarMultiple(nn.Module):
@@ -183,6 +185,11 @@ class Trainer:
                 # activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
                 ghost_grad_loss, ghost_grad_loss_prescaled = self.ghost_gradients_loss(activations, reconstructions, pre_activations, dead_feature_mask, l2_loss)
                 loss += ghost_grad_loss
+                
+        # optional: cos-sim regularization
+        if self.config.cos_sim_reg:
+            _, mean_cos_sim = feature_similarity_without_bias(self.dict)
+            loss += self.config.cos_sim_alpha * mean_cos_sim
         
         # backward pass
         self.optimizer.zero_grad()
@@ -229,6 +236,7 @@ class Trainer:
             if i % self.config.evaluation_interval == 0:
                 
                 metrics = evaluate(
+                    self.config,
                     self.config.hook_point,
                     self.activation_loader.test_loader,
                     self.dict,
@@ -264,30 +272,165 @@ class PostTrainer(Trainer):
         
         self.load_weights(self.config.checkpoint_path)
         
+        # initialize the optimizer and scheduler for training
         if self.config.scalar_multiple:
-            n_features = config.activation_size * config.expansion_factor
-            self.scalar_multiple = ScalarMultiple(n_features).to(config.device)
-            self.optimizer = torch.optim.AdamW(self.scalar_multiple.parameters(), lr=self.config.lr)
+            n_features = self.config.activation_size * self.config.expansion_factor
+            self.scalar_multiple = ScalarMultiple(n_features).to(self.config.device)
+            self.optimizer = torch.optim.AdamW(
+                self.scalar_multiple.parameters(), 
+                lr=self.config.lr,
+                betas=(self.config.beta1, self.config.beta2)
+            )
+        elif self.config.decoder_only:
+            
+            # freeze all parameters except W_d
+            for name, param in self.dict.named_parameters():
+                if name != 'W_d':
+                    param.requires_grad = False
+            self.optimizer = torch.optim.AdamW(
+                [self.dict.W_d],
+                lr=self.config.lr,
+                betas=(self.config.beta1, self.config.beta2)
+            )
+        else:
+            self.optimizer = ConstrainedAdamW(
+                params=self.dict.parameters(),
+                constrained_param=self.dict.W_d,
+                lr=self.config.lr,
+                betas=(self.config.beta1, self.config.beta2)
+            )
+            
+    def save_weights(self, filename="checkpoint.pt"):
+        filepath = os.path.join(self.checkpoint_dir, filename)
+        torch.save(self.dict, filepath)
+        if self.config.scalar_multiple:
+            scalar_path = os.path.join(self.checkpoint_dir, "scalar_multiple.pt")
+            torch.save(self.scalar_multiple, scalar_path)
+        
+    def load_weights(self, path):
+        self.dict = torch.load(path)
+        
+    def fit(self):
+        
+        # initialize the weights and biases projects
+        if self.config.use_wandb:
+            wandb.init(
+                entity=self.config.wandb_entity,
+                project=self.config.wandb_project, 
+                name=self.config.wandb_name,
+                group=self.config.wandb_group,
+                config=self.config
+            )
+        
+        # training loop
+        for i in tqdm(range(self.config.n_steps)):
+            
+            # evaluate the autoencoder
+            if i % self.config.evaluation_interval == 0:
+                
+                if self.config.scalar_multiple:
+                    metrics = evaluate(
+                        self.config,
+                        self.config.hook_point,
+                        self.activation_loader.test_loader,
+                        self.dict,
+                        self.feature_cache,
+                        self.feature_freq_cache,
+                        self.activation_loader.model,
+                        self.config.device,
+                        self.scalar_multiple
+                    )
+                else:
+                    metrics = evaluate(
+                        self.config,
+                        self.config.hook_point,
+                        self.activation_loader.test_loader,
+                        self.dict,
+                        self.feature_cache,
+                        self.feature_freq_cache,
+                        self.activation_loader.model,
+                        self.config.device
+                    )
+                wandb.log(metrics, step=i)
+                self.save_weights()
+            
+            # get activations
+            activations = self.activation_loader.get(i, split="train")
+            
+            # update the autoencoder
+            self.step(activations.to(self.config.device))
+            
+        if self.config.use_wandb:
+            wandb.finish() 
             
     def step(self, activations: torch.Tensor):
         
-        # determine and set the learning rate for this iteration
-        lr = self.get_lr()
-        for param_group in self.optimizer.param_groups:
-            param_group["lr"] = lr
-        
         # forward pass
         pre_activations = self.dict.encode_pre_activation(activations)
+        
+        # optional: scalar multiple
         if self.config.scalar_multiple:
             pre_activations = self.scalar_multiple(pre_activations)
         features = torch.nn.functional.relu(pre_activations)
         reconstructions = self.dict.decode(features)
         
-        # cache feature activations
+        # cache feature activations and feature frequency
         self.feature_cache.push(features.sum(dim=0, keepdim=True).cpu())
+        self.feature_freq_cache.push(
+            ((features != 0).sum(dim=0, keepdim=True) / features.shape[0]).cpu()
+        )
         
         # compute loss
         loss, l2_loss, l1_loss = self.compute_loss(activations, features, reconstructions)
+        
+        # optional: KL divergence loss
+        if self.config.kl_loss:
+            
+            def dict_ablation_fn(representation):
+                if(isinstance(representation, tuple)):
+                    second_value = representation[1]
+                    internal_activation = representation[0]
+                else:
+                    internal_activation = representation
+
+                reconstruction = self.dict.forward(internal_activation)
+
+                if(isinstance(representation, tuple)):
+                    return_value = (reconstruction, second_value)
+                else:
+                    return_value = reconstruction
+
+                return return_value
+    
+            batch = self.activation_loader.train_loader.dataset[self.n_steps]
+            input_ids = batch["input_ids"].to(self.config.device).unsqueeze(0)
+            
+            # get logits
+            original_logits = self.activation_loader.model(input_ids).logits
+            with Trace(self.activation_loader.model, self.config.hook_point, edit_output=dict_ablation_fn) as ret:
+                logits_dict_reconstruction = self.activation_loader.model(input_ids).logits
+
+            # compute KL divergence loss
+            kl_loss = torch.nn.functional.kl_div(
+                torch.nn.functional.log_softmax(logits_dict_reconstruction, dim=-1),
+                torch.nn.functional.softmax(original_logits, dim=-1),
+                reduction="batchmean",
+            )
+            
+            # Set KL to be the same scale as L2
+            kl_loss_scaled = kl_loss * (l2_loss / kl_loss).detach()
+            
+            # Make kl be scaled relative to L2
+            kl_loss_scaled = self.config.kl_alpha * kl_loss_scaled
+            l2_loss_scaled = (1.0 - self.config.kl_alpha) * l2_loss
+        else: 
+            kl_loss_scaled = 0
+            
+        # optional: set mse loss to 0
+        if self.config.use_mse_loss:
+            loss = l2_loss + kl_loss_scaled + self.config.sparsity_coefficient * l1_loss
+        else: 
+            loss = kl_loss_scaled + self.config.sparsity_coefficient * l1_loss
         
         # ghost gradients
         if self.config.use_ghost_grads:
@@ -312,10 +455,10 @@ class PostTrainer(Trainer):
                 "Model/b_d": wandb.Histogram(self.dict.b_d.detach().cpu()),
             })
             wandb.log({
-                "Train/LR": lr, 
                 "Train/Loss": loss,
                 "Train/L1 Loss": l1_loss,
                 "Train/L2 Loss": l2_loss,
+                "Train/KL Loss": kl_loss_scaled,
                 "Train/L0": torch.norm(features, 0, dim=-1).mean(),
                 "Train/Dead Features": dead_features(self.feature_cache),
                 "Train/Variance Unexplained": FVU(activations, reconstructions),

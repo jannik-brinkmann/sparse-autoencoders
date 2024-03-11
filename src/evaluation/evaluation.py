@@ -7,7 +7,8 @@ from transformers import PreTrainedModel
 
 from ..autoencoders import Dict
 from ..training.cache import FeatureCache
-from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance, cosine_sim, feature_frequency_hist, count_active_features_below_threshold, feature_similarity
+from ..training.config import TrainingConfig, PostTrainingConfig
+from .metrics import FLR, FVU, L0, L1, MSE, dead_features, feature_frequency, feature_magnitude, Effective_L0, dec_bias_median_distance, cosine_sim, feature_frequency_hist, count_active_features_below_threshold, feature_similarity_with_bias, feature_similarity_without_bias
 import wandb
 import numpy as np
 
@@ -30,13 +31,15 @@ def average_per_position(list_of_lists):
 
 
 def evaluate(
+        config: TrainingConfig, 
         activation_name: str, 
         data_loader: DataLoader,
         dictionary: Dict, 
         feature_buffer: FeatureCache,
         feature_freq_cache: FeatureCache,
         model: PreTrainedModel,
-        device: str
+        device: str,
+        scalar_multiple = None,
     ):
     
     # metrics = {k: [] for k in ["Loss Recovered", "FVU", "L0", "L1", "MSE", "Dead Features", "Feature Frequency", "Feature Magnitude"]}
@@ -47,12 +50,12 @@ def evaluate(
 
         "Sparsity/Dead Features", "Sparsity/Feature Frequency", 
         
-        "Dying Features/Threshold 0.00001", "Dying Features/Threshold 0.0001", "Dying Features/Threshold 0.001", "Dying Features/Threshold 0.01", "Dying Features/Threshold 0.1"
+        "Dying Features/Threshold 0.00001", "Dying Features/Threshold 0.0001", "Dying Features/Threshold 0.001", "Dying Features/Threshold 0.01", "Dying Features/Threshold 0.1",
         
-        "Mean Feature Similarity"
+        "Feature Sim./Mean (with Bias)", "Feature Sim./Mean (without Bias)"
         ]}
     
-    list_metrics = {k: [] for k in ["Sparsity Hist/Feature Frequency Hist", "Feature Similarity Hist"]}
+    list_metrics = {k: [] for k in ["Sparsity Hist/Feature Frequency Hist", "Feature Sim./Hist (with Bias)", "Feature Sim./Hist (without Bias)"]}
     
     for idx, batch in enumerate(data_loader):
         if(idx == 5):
@@ -73,7 +76,11 @@ def evaluate(
                 activations = rearrange(representation, "b s d_model -> (b s) d_model")
 
                 # compute features and reconstruct activations using sparse autoencoder
-                features = dictionary.encode(activations)
+                pre_activations = dictionary.encode_pre_activation(activations)
+                if isinstance(config, PostTrainingConfig):  # optional: scalar multiple
+                    if config.scalar_multiple:
+                        pre_activations = scalar_multiple(pre_activations)
+                features = torch.nn.functional.relu(pre_activations)
                 reconstructions = dictionary.decode(features)
 
                 # compute metrics
@@ -104,9 +111,13 @@ def evaluate(
                 metrics["Sparsity/Feature Frequency"].append(feature_frequency(feature_buffer))
                 list_metrics["Sparsity Hist/Feature Frequency Hist"].append(feature_frequency_hist(feature_freq_cache))
                 
-                max_similarities, mean_max_similarity = feature_similarity(dictionary)
-                list_metrics["Feature Similarity Hist"].append(max_similarities)
-                metrics["Mean Feature Similarity"].append(mean_max_similarity)
+                max_similarities, mean_max_similarity = feature_similarity_with_bias(dictionary)
+                list_metrics["Feature Sim./Hist (with Bias)"].append(max_similarities)
+                metrics["Feature Sim./Mean (with Bias)"].append(mean_max_similarity)
+                
+                max_similarities, mean_max_similarity = feature_similarity_without_bias(dictionary)
+                list_metrics["Feature Sim./Hist (without Bias)"].append(max_similarities)
+                metrics["Feature Sim./Mean (without Bias)"].append(mean_max_similarity)
                 
                 metrics["Dying Features/Threshold 0.00001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.00001))
                 metrics["Dying Features/Threshold 0.0001"].append(count_active_features_below_threshold(feature_buffer, threshold=0.0001))

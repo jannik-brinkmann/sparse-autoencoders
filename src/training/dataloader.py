@@ -39,6 +39,7 @@ class CachedActivationLoader(ActivationLoader):
             seed=self.config.seed
         )
         self.n_train_batches = len(train_loader)
+        self.train_loader = train_loader
         self.test_loader = test_loader
         
         # evaluate if activations for a given config have been cached before
