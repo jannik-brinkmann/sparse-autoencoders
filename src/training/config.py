@@ -11,6 +11,7 @@ class TrainingConfig:
     dataset_name_or_path: str = ""
     activation_size: int = -1
     activation_function: str = ""
+    lr_scheduler: str = ""
 
     # SAE Parameters
     expansion_factor: int = 32

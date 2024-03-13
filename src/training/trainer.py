@@ -14,7 +14,7 @@ from .dataloader import CachedActivationLoader
 from .optimizer import ConstrainedAdamW
 from .utils import save_config
 from ..evaluation import FVU, dead_features, evaluate
-
+from .lr_scheduler import cosine_with_warm_up_scheduler
 
 class Trainer:
     """Trainer for a Sparse Autoencoder."""
@@ -86,9 +86,15 @@ class Trainer:
             self.activation_function = torch.nn.functional.relu6
         elif config.activation_function == "Softplus":
             self.activation_function = torch.nn.functional.softplus
+        
+        # lr scheduler
+        self.lr_scheduler = None
+        if config.lr_scheduler == "cosine_with_warmup":
+            self.lr_scheduler = cosine_with_warm_up_scheduler(config=config)
+            self.get_lr = cosine_with_warm_up_scheduler.get_lr
 
     # learning rate decay scheduler (cosine with warmup)
-    def get_lr(self):
+    def get_lr1(self):
         lr_decay_iters = self.config.n_steps
         # 1) linear warmup for warmup_iters steps
         if self.n_steps < self.config.lr_warmup_steps:
@@ -159,7 +165,7 @@ class Trainer:
     def step(self, activations: torch.Tensor):
         
         # determine and set the learning rate for this iteration
-        lr = self.get_lr()
+        lr = self.get_lr(self, n_steps=self.n_steps)
         for param_group in self.optimizer.param_groups:
             param_group["lr"] = lr
         
