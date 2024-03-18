@@ -29,7 +29,6 @@ class cosine_with_warm_up_scheduler(lr_scheduler):
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
         return self.config.min_lr + coeff * (self.config.lr - self.config.min_lr)
 
-# TODO: adjust
 class polynomial_with_warm_up_scheduler(lr_scheduler):
 
     def __init__(self, config: TrainingConfig):
@@ -40,15 +39,14 @@ class polynomial_with_warm_up_scheduler(lr_scheduler):
         lr_decay_iters = self.config.n_steps
         # 1) linear warmup for warmup_iters steps
         if n_steps < self.config.lr_warmup_steps:
-            return self.config.lr * n_steps / self.config.lr_warmup_steps
+            return self.config.lr
         # 2) if it > lr_decay_iters, return min learning rate
         if n_steps > lr_decay_iters:
             return self.config.min_lr
         # 3) in between, use cosine decay down to min learning rate
-        decay_ratio = (n_steps - self.config.lr_warmup_steps) / (lr_decay_iters - self.config.lr_warmup_steps)
+        decay_ratio = 1 - ((n_steps - self.config.lr_warmup_steps )/ (lr_decay_iters - self.config.lr_warmup_steps)) ** 2
         assert 0 <= decay_ratio <= 1
-        coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
-        return self.config.min_lr + coeff * (self.config.lr - self.config.min_lr)
+        return self.config.lr * decay_ratio
     
 # TODO: adjust
 class exponential_with_warm_up_scheduler(lr_scheduler):
