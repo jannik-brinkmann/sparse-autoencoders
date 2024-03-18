@@ -85,12 +85,10 @@ class linear_with_warm_up_scheduler(lr_scheduler):
         if n_steps > lr_decay_iters:
             return self.config.min_lr
         # 3) in between, use cosine decay down to min learning rate
-        decay_ratio = (n_steps - self.config.lr_warmup_steps) / (lr_decay_iters - self.config.lr_warmup_steps)
+        decay_ratio = 1 - ((n_steps - self.config.lr_warmup_steps )/ (lr_decay_iters - self.config.lr_warmup_steps))
         assert 0 <= decay_ratio <= 1
-        coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
-        return self.config.min_lr + coeff * (self.config.lr - self.config.min_lr)
+        return self.config.lr * decay_ratio
 
-# TODO: step based
 class step_based_with_warm_up_scheduler(lr_scheduler):
     def __init__(self, config: TrainingConfig):
         super().__init__(config)
@@ -105,13 +103,14 @@ class step_based_with_warm_up_scheduler(lr_scheduler):
         if n_steps > lr_decay_iters:
             return self.config.min_lr
         # 3) in between, use cosine decay down to min learning rate
-        decay_ratio = (n_steps - self.config.lr_warmup_steps) / (lr_decay_iters - self.config.lr_warmup_steps)
+        drop_rate = 0.8
+        steps_drop = 10.0 # every steps_drop the lr drops
+        adjusted_steps = n_steps - self.config.lr_warmup_steps
+        decay_ratio = math.pow(drop_rate, math.floor(adjusted_steps/steps_drop))
         assert 0 <= decay_ratio <= 1
-        coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
-        return self.config.min_lr + coeff * (self.config.lr - self.config.min_lr)
+        return self.config.lr * decay_ratio
 
-# TODO: time based
-class exponential_with_warm_up_scheduler(lr_scheduler):
+class time_based_with_warm_up_scheduler(lr_scheduler):
 
     def __init__(self, config: TrainingConfig):
         super().__init__(config)
@@ -126,8 +125,8 @@ class exponential_with_warm_up_scheduler(lr_scheduler):
         if n_steps > lr_decay_iters:
             return self.config.min_lr
         # 3) in between, use cosine decay down to min learning rate
-        k = 0.1
-        decay_ratio = (n_steps - self.config.lr_warmup_steps) / (lr_decay_iters - self.config.lr_warmup_steps)
+        decay = self.config.lr / (lr_decay_iters - self.config.lr_warmup_steps)
+        decay_ratio = 1 / (1 + decay * (n_steps - self.config.lr_warmup_steps))
         assert 0 <= decay_ratio <= 1
-        return self.config.lr
+        return self.config.lr * decay_ratio
 # TODO: warmup restarts and cool downs ausprobieren beim besten scheduler
