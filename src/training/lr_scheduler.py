@@ -109,3 +109,5 @@ class step_based_with_warm_up_scheduler(lr_scheduler):
         assert 0 <= decay_ratio <= 1
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
         return self.config.min_lr + coeff * (self.config.lr - self.config.min_lr)
+
+# TODO: warmup restarts and cool downs ausprobieren beim besten scheduler
