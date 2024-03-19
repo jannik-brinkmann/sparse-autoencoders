@@ -44,18 +44,25 @@ class UntiedSAE(Dict, nn.Module):
         self.W_d.data[:] = self.W_d / torch.clamp(norms, 1e-8)
 
     def encode_pre_activation(self, x):
-        x_bar = x - self.b_d
+        if self.config.use_pre_encoder_bias:
+            x_bar = x - self.b_d
+        else:
+            x_bar = x
         return x_bar @ self.W_e.T + self.b_e
     
     def encode(self, x):
-        x_bar = x - self.b_d
-        return F.relu(x_bar @ self.W_e.T + self.b_e)
+        pre_activations = self.encode_pre_activation(x)
+        return F.relu(pre_activations)
     
     def decode(self, f):
         # Normalize the weights
         # norms = self.W_d.norm(dim=-1, keepdim=True)
         # self.W_d.data = self.W_d / torch.clamp(norms, 1e-8)
-        return f @ self.W_d.T + self.b_d
+
+        outputs = f @ self.W_d.T
+        if self.config.use_pre_encoder_bias:
+            outputs = outputs + self.b_d
+        return outputs
     
     def forward(self, x):
         return self.decode(self.encode(x))

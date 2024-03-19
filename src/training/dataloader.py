@@ -31,15 +31,19 @@ class CachedActivationLoader(ActivationLoader):
         super().__init__(config)
         
         # initialize model and tokenizer
-        self.model = AutoModelForCausalLM.from_pretrained(config.model_name_or_path).to(config.device)
-        tokenizer = AutoTokenizer.from_pretrained(self.config.model_name_or_path)
+        if config.revision:
+            print("loading revision " + config.revision, flush=True)
+            self.model = AutoModelForCausalLM.from_pretrained(config.model_name_or_path, revision=config.revision).to(config.device)
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(config.model_name_or_path).to(config.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.config.model_name_or_path)
         train_loader, test_loader = self.get_dataloaders(
-            tokenizer, 
+            self.tokenizer, 
             add_bos_token=self.config.add_bos_token,
             seed=self.config.seed
         )
         self.n_train_batches = len(train_loader)
-        self.train_loader = train_loader
+        #self.train_loader = train_loader
         self.test_loader = test_loader
         
         # evaluate if activations for a given config have been cached before
@@ -71,8 +75,19 @@ class CachedActivationLoader(ActivationLoader):
         return activations
         
     def get_activation_size(self):
-        activations = self.get(0, split="train")
-        activation_size = activations.size(-1)
+        try:
+            activations = self.get(0, split="train")
+            activation_size = activations.size(-1)
+        except:
+            text = "Hello World!"
+            tokens = self.tokenizer(text, return_tensors="pt").input_ids.to(self.config.device)
+            with torch.no_grad():
+                with Trace(self.model, self.config.hook_point) as ret:
+                    _ = self.model(tokens)
+                    representation = ret.output
+                    if(isinstance(representation, tuple)):
+                        representation = representation[0]
+                    activation_size = representation.shape[-1]
         return activation_size
         
     def get_dataloaders(self, tokenizer, add_bos_token, seed, test_size=0.02):
@@ -86,7 +101,7 @@ class CachedActivationLoader(ActivationLoader):
         )
         test_loader = DataLoader(
             token_dataset["test"], 
-            batch_size=self.config.batch_size, 
+            batch_size=1, 
             shuffle=False
         )
         return train_loader, test_loader

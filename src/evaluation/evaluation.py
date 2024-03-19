@@ -58,7 +58,7 @@ def evaluate(
     list_metrics = {k: [] for k in ["Sparsity Hist/Feature Frequency Hist", "Feature Sim./Hist (with Bias)", "Feature Sim./Hist (without Bias)"]}
     
     for idx, batch in enumerate(data_loader):
-        if(idx == 5):
+        if(idx == config.evaluation_batches):
             break
         input_ids = batch["input_ids"].to(device)
 

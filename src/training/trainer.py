@@ -57,9 +57,12 @@ class Trainer:
         self.dict = UntiedSAE(self.config)
         self.dict.to(self.config.device)
         
-        #if config.b_dec_init_method == "geometric_median":
-            # SETUP PROPERLY
-        #    self.dict.initialize_b_d_with_geometric_median()
+        if config.b_dec_init_method == "geometric_median":
+            b_d_init_acts = self.activation_loader.get(0, split="train")
+            for i in range(1, 5):
+                activations = self.activation_loader.get(i, split="train")
+                b_d_init_acts = torch.cat((b_d_init_acts, activations), dim=0)
+            self.dict.initialize_b_d_with_geometric_median(b_d_init_acts)
         
         # initialize the feature cache
         tokens_per_batch = config.batch_size * config.ctx_length
@@ -80,10 +83,12 @@ class Trainer:
             params=self.dict.parameters(),
             constrained_param=self.dict.W_d,
             lr=config.lr,
-            betas=(self.config.beta1, self.config.beta2)
-        )
+            betas=(self.config.beta1, self.config.beta2),
+            config=self.config
+        )        
         # self.optimizer.betas = (beta1, beta2)
         # self.optimizer.weight_decay = weight_decay
+        self.dynamic_coeff = -1
         
     # learning rate decay scheduler (cosine with warmup)
     def get_lr(self):
@@ -100,8 +105,14 @@ class Trainer:
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
         return self.config.min_lr + coeff * (self.config.lr - self.config.min_lr)
         
-    def compute_loss(self, activations, features, reconstructions, normalize=False):
-        l2_loss = (activations - reconstructions).pow(2).mean()
+    def compute_loss(self, activations, features, reconstructions):
+        
+        if self.config.sqrt_mse:
+            l2_loss = torch.pow((reconstructions - activations.float()), 2).sum(dim=-1, keepdim=True).sqrt().mean()
+        else:
+            l2_loss = (activations - reconstructions).pow(2).mean()
+        # if self.config.sqrt_mse:
+        #     l2_loss = math.sqrt(l2_loss)
         # x_centred = activations - activations.mean(dim=0, keepdim=True)
         # l2_loss = (
         #     torch.pow((reconstructions - activations.float()), 2)
@@ -109,10 +120,71 @@ class Trainer:
         # ).mean()
         if self.config.l1_sqrt:
             l1_loss = torch.norm(torch.sqrt(features), 1, dim=-1).mean()
+        elif self.config.l1_with_norm:
+            l1_loss = torch.norm((features * self.dict.W_d.norm(dim=0)), 1, dim=-1).mean()
         else:
             l1_loss = torch.norm(features, 1, dim=-1).mean()
         loss = l2_loss + self.config.sparsity_coefficient * l1_loss
+        
+        
+        if self.config.dynamic_weighting: 
+            # instead of trying to find a perfect L1 alpha, we dynamically increase L1 
+            # alpha and then consistently weight is according to some target L0
+            
+            # 1) linear warmup
+            if self.n_steps < self.config.l1_warmup_steps:
+                self.dynamic_coeff = self.config.sparsity_coefficient * self.n_steps / self.config.l1_warmup_steps
+                
+            else:
+                beta = 0.01
+                current_l0 = torch.norm(features, 0, dim=-1).mean().detach()
+                coeff = current_l0 / self.config.target_l0
+                coeff = min(coeff, 1.04)
+                
+                # exponential moving average
+                self.dynamic_coeff = beta * (coeff * self.dynamic_coeff) + (1 - beta) * self.dynamic_coeff
+                
+            loss = l2_loss + self.dynamic_coeff * l1_loss
+            
+            
         return loss, l2_loss, l1_loss
+    
+    def resample_neurons(self, deads, activations, reconstructions):
+        """
+        resample dead neurons according to the following scheme:
+        Reinitialize the decoder vector for each dead neuron to be an activation
+        vector v from the dataset with probability proportional to ae's loss on v.
+        Reinitialize all dead encoder vectors to be the mean alive encoder vector x 0.2.
+        Reset the bias vectors for dead neurons to 0.
+        Reset the Adam parameters for the dead neurons to their default values.
+        """
+        with torch.no_grad():
+            if deads.sum() == 0:
+                return
+            print(f"resampling {deads.sum()} neurons")
+            
+            # compute the loss for each activation vector
+            losses = (activations - self.dict(activations)).norm(dim=-1)
+
+            # sample inputs to create encoder/decoder weights from
+            n_resample = min([deads.sum(), losses.shape[0]])
+            indices = torch.multinomial(losses, num_samples=n_resample, replacement=False)
+            sampled_vecs = activations[indices]
+
+            alive_norm = self.dict.W_e[~deads, :].norm(dim=-1).mean()
+            self.dict.W_e[deads][:n_resample] = sampled_vecs * alive_norm * 0.2
+            self.dict.W_d[:,deads][:,:n_resample] = (sampled_vecs / sampled_vecs.norm(dim=-1, keepdim=True)).T
+            # reset bias vectors for dead neurons
+            self.dict.b_e[deads][:n_resample] = 0.
+
+            # reset Adam parameters for dead neurons
+            state_dict = self.optimizer.state_dict()['state']
+            # # encoder weight
+            state_dict[0]['exp_avg'][deads] = 0.
+            state_dict[0]['exp_avg_sq'][deads] = 0.
+            # # encoder bias
+            state_dict[2]['exp_avg'][deads] = 0.
+            state_dict[2]['exp_avg_sq'][deads] = 0.
     
     def ghost_gradients_loss(self, activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
         # ghost protocol (from Joseph Bloom: https://github.com/jbloomAus/mats_sae_training/blob/98e4f1bb416b33d49bef1acc676cc3b1e9ed6441/sae_training/sparse_autoencoder.py#L105)
@@ -196,6 +268,14 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
         
+        # optional: neuron resampling
+        if self.config.use_neuron_resampling: 
+            if self.n_steps % self.config.resampling_steps == 0:
+                print("doing da resampling")
+                dead_feature_mask = self.feature_cache.get().sum(0) == 0
+                self.resample_neurons(dead_feature_mask, activations, reconstructions)
+                
+        
         # log training statistics
         if self.config.use_wandb and self.n_steps % self.config.evaluation_interval == 0:
             wandb.log({"Tokens": self.n_steps * self.config.batch_size * self.config.ctx_length})
@@ -204,6 +284,7 @@ class Trainer:
                 "Model/W_d": wandb.Histogram(self.dict.W_d.detach().cpu()),
                 "Model/b_e": wandb.Histogram(self.dict.b_e.detach().cpu()),
                 "Model/b_d": wandb.Histogram(self.dict.b_d.detach().cpu()),
+                "Model/W_d norm": wandb.Histogram(self.dict.W_d.norm(dim=0).detach().cpu()),
             })
             wandb.log({
                 # "Train/LR": lr, 
@@ -213,9 +294,24 @@ class Trainer:
                 "Train/L0": torch.norm(features, 0, dim=-1).mean(),
                 "Train/Dead Features": dead_features(self.feature_cache),
                 "Train/Variance Unexplained": FVU(activations, reconstructions),
+                "Train/Dynamic L1 Coefficient": self.dynamic_coeff
             })
         
         self.n_steps += 1
+    
+    def evaluate(self):
+        
+        metrics = evaluate(
+            self.config,
+            self.config.hook_point,
+            self.activation_loader.test_loader,
+            self.dict,
+            self.feature_cache,
+            self.feature_freq_cache,
+            self.activation_loader.model,
+            self.config.device
+        )
+        return metrics
     
     def fit(self):
         
@@ -371,6 +467,11 @@ class PostTrainer(Trainer):
         # optional: scalar multiple
         if self.config.scalar_multiple:
             pre_activations = self.scalar_multiple(pre_activations)
+            
+            # log scalars
+            wandb.log({
+                "scalars": wandb.Histogram(self.scalar_multiple.scalars.detach().cpu().numpy().tolist())
+                })
         features = torch.nn.functional.relu(pre_activations)
         reconstructions = self.dict.decode(features)
         

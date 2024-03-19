@@ -13,14 +13,18 @@ class TrainingConfig:
     
     # Base Model and Dataset
     model_name_or_path: str = ""
+    revision: str = ""
     hook_point: str = ""
     dataset_name_or_path: str = ""
     activation_size: int = -1
     add_bos_token: bool = False
+    evaluation_batches: int = 5
     
     # SAE Parameters
     expansion_factor: int = 32
     b_dec_init_method: str = "" 
+    use_pre_encoder_bias: bool = True
+    tied: bool = False
     
     # Training Parameters
     n_steps: int = -1
@@ -37,12 +41,21 @@ class TrainingConfig:
     l1_sqrt: bool = False
     cos_sim_reg: bool = False
     cos_sim_alpha: float = 0.0
+    decoder_normalization: bool = True
+    decoder_norm_smaller_than_one: bool = False
+    l1_with_norm: bool = False
+    sqrt_mse: bool = False
+    dynamic_weighting: bool = False
+    l1_warmup_steps: int = -1
+    target_l0: int = -1
     
     # Activation Buffer
     n_tokens_in_feature_cache: int = 1e6 
     
     # Ghost Gradients
     use_ghost_grads: bool = False
+    use_neuron_resampling: bool = False
+    resampling_steps: int = -1
     
     # I/O
     output_dir: str = "outputs"
