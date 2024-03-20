@@ -96,11 +96,12 @@ def get_configs(
         config = replace(config, **config_dict)
         
         # replace wandb_name
-        rounded_value = round(value, 6)
+        if not isinstance(value, str):
+            value = round(value, 6)
         if wandb_prefix:
-            wandb_name = f"{wandb_prefix}_{rounded_value}_" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+            wandb_name = f"{wandb_prefix}_{value}_" + datetime.now().strftime("%Y%m%d%H%M%S%f")
         else:
-            wandb_name = f"{attr_name}_{rounded_value}_" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+            wandb_name = f"{attr_name}_{value}_" + datetime.now().strftime("%Y%m%d%H%M%S%f")
         config = replace(config, wandb_name=wandb_name)
         configs.append(config)
     return configs
