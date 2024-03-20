@@ -108,7 +108,7 @@ class Trainer:
     def compute_loss(self, activations, features, reconstructions):
         
         if self.config.sqrt_mse:
-            l2_loss = torch.pow((reconstructions - activations.float()), 2).sum(dim=-1, keepdim=True).sqrt().mean()
+            l2_loss = (activations - reconstructions).pow(2).mean().sqrt()  # torch.pow((reconstructions - activations.float()), 2).sum(dim=-1, keepdim=True).sqrt().mean()
         else:
             l2_loss = (activations - reconstructions).pow(2).mean()
         # if self.config.sqrt_mse:
