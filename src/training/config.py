@@ -12,6 +12,7 @@ class TrainingConfig:
     activation_size: int = -1
     activation_function: str = ""
     lr_scheduler: str = ""
+    power_of_scheduler: float = 1
 
     # SAE Parameters
     expansion_factor: int = 32

@@ -130,3 +130,43 @@ class time_based_with_warm_up_scheduler(lr_scheduler):
         assert 0 <= decay_ratio <= 1
         return self.config.lr * decay_ratio
 # TODO: warmup restarts and cool downs ausprobieren beim besten scheduler und nach anderen Tricks gucken
+    
+class adjustable_polynomial_with_warmup_scheduler(lr_scheduler):
+
+    def __init__(self, config: TrainingConfig):
+        super().__init__(config)
+        self.config = config
+
+    def get_lr(self, n_steps):
+        super().get_lr(n_steps=n_steps)
+        lr_decay_iters = self.config.n_steps
+        # 1) linear warmup for warmup_iters steps
+        if n_steps < self.config.lr_warmup_steps:
+            return self.config.lr * n_steps / self.config.lr_warmup_steps
+        # 2) if it > lr_decay_iters, return min learning rate
+        if n_steps > lr_decay_iters:
+            return self.config.min_lr
+        # 3) in between, use cosine decay down to min learning rate
+        decay_ratio = 1 - ((n_steps - self.config.lr_warmup_steps )/ (lr_decay_iters - self.config.lr_warmup_steps)) ** self.config.power_of_scheduler
+        assert 0 <= decay_ratio <= 1
+        return self.config.lr * decay_ratio
+    
+class adjustable_reverse_polynomial_with_warmup_scheduler(lr_scheduler):
+
+    def __init__(self, config: TrainingConfig):
+        super().__init__(config)
+        self.config = config
+
+    def get_lr(self, n_steps):
+        super().get_lr(n_steps=n_steps)
+        lr_decay_iters = self.config.n_steps
+        # 1) linear warmup for warmup_iters steps
+        if n_steps < self.config.lr_warmup_steps:
+            return self.config.lr * n_steps / self.config.lr_warmup_steps
+        # 2) if it > lr_decay_iters, return min learning rate
+        if n_steps > lr_decay_iters:
+            return self.config.min_lr
+        # 3) in between, use cosine decay down to min learning rate
+        decay_ratio = ((n_steps - self.config.lr_warmup_steps )/ (lr_decay_iters - self.config.lr_warmup_steps)) ** self.config.power_of_scheduler
+        assert 0 <= decay_ratio <= 1
+        return self.config.lr * decay_ratio

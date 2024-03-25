@@ -20,6 +20,8 @@ config = TrainingConfig(
         dataset_name_or_path = "Elriggs/openwebtext-100k", # "jbrinkma/pile-500k",
         activation_function="Softplus",
         lr_scheduler = "cosine_with_warmup",
+        power_of_scheduler= 1,
+
         # SAE Parameters
         expansion_factor = 4,
         b_dec_init_method = "",
@@ -51,7 +53,7 @@ config = TrainingConfig(
     )
         
 if __name__ == "__main__":
-    
+    """
     configs = []
     
     config = replace(config, wandb_group="Softplus test")
@@ -67,4 +69,47 @@ if __name__ == "__main__":
     for c in configs:
         trainer = Trainer(c)  
         trainer.fit()
+    """
+    config = replace(config, wandb_group = "polynomial_with_several_powers/ ReLU test")
+    config = replace(config, lr_scheduler = "polynomial_with_adjustable_power")
+    powers = [0.1, 0.5, 1, 2, 3, 4, 10]
+
+    for power in powers:
+        config = replace(config, power_of_scheduler = power)
+        configs = []
+        configs += get_configs(  # LR sweep
+        config, "lr", [0.01, 0.005, 0.001, 0.0005, 0.0001]
+        )
     
+        # config = replace(config, wandb_group="L1_sweep_v0")
+        # configs += get_configs(  # L1 sweep
+        #     config, "sparsity_coefficient", [0.01, 0.008, 0.006, 0.004, 0.002, 0.001, 0.0008, 0.0006, 0.0004, 0.0002, 0.0001]
+        # )
+    
+        for c in configs:
+            print(c.power_of_scheduler)
+            print(c.lr_scheduler)
+            trainer = Trainer(c)  
+            trainer.fit()
+    
+    config = replace(config, wandb_group = "reverse_polynomial_with_several_powers/ ReLU test")
+    config = replace(config, lr_scheduler= "reverse_polynomial_with_adjustable_power")
+    powers = [0.1, 0.5, 1, 2, 3, 4, 10]
+
+    for power in powers:
+        config = replace(config, power_of_scheduler = power)
+        configs = []
+        configs += get_configs(  # LR sweep
+        config, "lr", [0.01, 0.005, 0.001, 0.0005, 0.0001]
+        )
+    
+        # config = replace(config, wandb_group="L1_sweep_v0")
+        # configs += get_configs(  # L1 sweep
+        #     config, "sparsity_coefficient", [0.01, 0.008, 0.006, 0.004, 0.002, 0.001, 0.0008, 0.0006, 0.0004, 0.0002, 0.0001]
+        # )
+    
+        for c in configs:
+            print(c.power_of_scheduler)
+            print(c.lr_scheduler)
+            trainer = Trainer(c)  
+            trainer.fit()

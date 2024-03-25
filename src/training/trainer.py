@@ -14,7 +14,7 @@ from .dataloader import CachedActivationLoader
 from .optimizer import ConstrainedAdamW
 from .utils import save_config
 from ..evaluation import FVU, dead_features, evaluate
-from .lr_scheduler import cosine_with_warm_up_scheduler, polynomial_with_warm_up_scheduler, exponential_with_warm_up_scheduler, linear_with_warm_up_scheduler, step_based_with_warm_up_scheduler, time_based_with_warm_up_scheduler
+from .lr_scheduler import cosine_with_warm_up_scheduler, polynomial_with_warm_up_scheduler, exponential_with_warm_up_scheduler, linear_with_warm_up_scheduler, step_based_with_warm_up_scheduler, time_based_with_warm_up_scheduler, adjustable_polynomial_with_warmup_scheduler, adjustable_reverse_polynomial_with_warmup_scheduler
 
 class Trainer:
     """Trainer for a Sparse Autoencoder."""
@@ -101,6 +101,10 @@ class Trainer:
             self.lr_scheduler = step_based_with_warm_up_scheduler(config=config)
         if config.lr_scheduler == "time_based_with_warmup":
             self.lr_scheduler = time_based_with_warm_up_scheduler(config=config)
+        if config.lr_scheduler == "polynomial_with_adjustable_power":
+            self.lr_scheduler = adjustable_polynomial_with_warmup_scheduler(config=config)
+        if config.lr_scheduler == "reverse_polynomial_with_adjustable_power":
+            self.lr_scheduler = adjustable_reverse_polynomial_with_warmup_scheduler(config=config)
 
 
     # testing learning rate decay scheduler (cosine with warmup) implementation
