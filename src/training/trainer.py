@@ -313,6 +313,60 @@ class Trainer:
         )
         return metrics
     
+    def compute_covariance(n_samples=10, device='cpu'):
+        """
+        Compute the average covariance matrix across sequence positions 4-N.
+        
+        Parameters:
+        - activation_loader: An object that allows fetching activations batch-wise.
+        - n_samples: The total number of samples (activations) to consider for the computation.
+        - device: The device on which to perform computations (e.g., 'cpu', 'cuda:0').
+        
+        Returns:
+        - The average covariance matrix of dimensions (d_model, d_model).
+        """
+        global_mean = None
+        global_covariance = None
+        n_observed = 0
+
+        # Process batches until we reach the desired number of samples
+        for i in range(n_samples):
+            # Fetch batch activations for the given index, focusing on positions 4-N
+            activations = self.activation_loader.get(i, split="train")[:, 3:, :].to(device)  # Shape: (batch_size, N-3, d_model)
+            batch_size, seq_len, model_dim = activations.shape
+
+            # Flatten the batch for processing
+            flat_batch = activations.reshape(-1, model_dim)  # Shape: (batch_size*(N-3), d_model)
+
+            if global_mean is None:
+                global_mean = torch.zeros(model_dim, device=device)
+                global_covariance = torch.zeros((model_dim, model_dim), device=device)
+
+            # Update observed samples count
+            new_n_observed = n_observed + flat_batch.shape[0]
+
+            # Update mean
+            new_mean = global_mean + (flat_batch.mean(dim=0) - global_mean) * flat_batch.shape[0] / new_n_observed
+
+            # Update covariance (if this is the first batch, initialize global_covariance)
+            if n_observed == 0:
+                global_covariance = torch.cov(flat_batch.t())
+            else:
+                delta_mean = new_mean - global_mean
+                outer_delta_mean = torch.outer(delta_mean, delta_mean)
+                global_covariance = n_observed / new_n_observed * global_covariance \
+                                    + torch.cov(flat_batch.t()) \
+                                    + n_observed * flat_batch.shape[0] / new_n_observed * outer_delta_mean
+            
+            # Prepare for the next iteration
+            global_mean = new_mean
+            n_observed = new_n_observed
+
+        # Finalize covariance by adjusting for the total number of observations
+        average_covariance = global_covariance / (n_observed - 1)
+        
+        return average_covariance
+    
     def fit(self):
         
         # initialize the weights and biases projects
