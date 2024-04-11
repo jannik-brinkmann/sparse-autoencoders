@@ -18,7 +18,7 @@ config = TrainingConfig(
         model_name_or_path = "EleutherAI/pythia-70m-deduped", # "EleutherAI/pythia-70m-deduped",
         hook_point = "gpt_neox.layers.3", # "transformer.h.3"
         dataset_name_or_path = "Elriggs/openwebtext-100k", # "jbrinkma/pile-500k",
-        activation_function="Softplus",
+        activation_function="ReLU",
         lr_scheduler = "cosine_with_warmup",
         power_of_scheduler= 1,
 
