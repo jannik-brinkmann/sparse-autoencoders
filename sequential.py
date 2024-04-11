@@ -45,8 +45,8 @@ config = TrainingConfig(
         
         # Weights and Biases
         use_wandb = True,
-        wandb_entity = "best_sae",
-        wandb_project = "best_sae",
+        wandb_entity = "jannikbrinkmann",
+        wandb_project = "best-sae",
         wandb_group = ""
     )
 
@@ -69,7 +69,7 @@ if __name__ == "__main__":
         trainer = Trainer(c)  
         trainer.fit()
     """
-    lr_scheduler_list = ["linear_with_warmup", "step_based_with_warmup", "time_based_with_warmup"]
+    lr_scheduler_list = ["cosine_with_warmup","polynomial_with_warmup", "exponential_with_warmup" ,"linear_with_warmup", "step_based_with_warmup", "time_based_with_warmup"]
 
     for lr_scheduler in lr_scheduler_list:
         config = replace(config, lr_scheduler = lr_scheduler)
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     
         config = replace(config, wandb_group = lr_scheduler + "/ ReLU test")
         configs += get_configs(  # LR sweep
-        config, "lr", [0.01, 0.008, 0.006, 0.004, 0.002, 0.001, 0.0008, 0.0006, 0.0004, 0.0002, 0.0001]
+        config, "lr", [0.01, 0.075, 0.005, 0.025, 0.001, 0.00075, 0.0005, 0.00025, 0.0001]
         )
     
         # config = replace(config, wandb_group="L1_sweep_v0")
