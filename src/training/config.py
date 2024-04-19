@@ -27,7 +27,9 @@ class TrainingConfig:
     lr_warmup_steps: int = 1000
     sparsity_coefficient: float = 0.00008
     evaluation_interval: int = 400
-    
+    hessian_penalty: float = 0.001
+    k_for_hessian_penalty: int = 50
+
     # Activation Buffer
     n_tokens_in_feature_cache: int = 1e6 
     

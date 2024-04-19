@@ -126,9 +126,23 @@ class Trainer:
         #     / (x_centred**2).sum(dim=-1, keepdim=True).sqrt()
         # ).mean()
         l1_loss = torch.norm(features, 1, dim=-1).mean()
-        loss = l2_loss + self.config.sparsity_coefficient * l1_loss
+        hessian_penalty = self.hessian_penalty(features, k = self.config.k_for_hessian_penalty, epsilon= 0.001) # change the shape according to the paper
+        loss = l2_loss + self.config.sparsity_coefficient * l1_loss + self.config.hessian_penalty * hessian_penalty
         return loss, l2_loss, l1_loss
     
+    def hessian_penalty(self, features, k, epsilon):
+        # features are the input w.r.t the hessian penalty is taken
+        # The following paper will be replicated: https://arxiv.org/pdf/2008.10599.pdf
+        # function of which the h.p. will be taken: self.dict.decode(features)
+        G_z = self.dict.decode(features)
+        random_tensor = torch.randint(0, 2, size=[k, features.shape[1]], device = self.config.device)
+        random_rademacher = random_tensor * 2 - 1
+        vs = epsilon * random_rademacher
+        finite_diffs = [self.dict.decode(features + v) - 2 * G_z + self.dict.decode(features - v) for v in vs]
+        finite_diffs = torch.stack(finite_diffs) / (epsilon ** 2)
+        hessian_penalty = torch.var(finite_diffs, dim=0).max()
+        return hessian_penalty
+
     def ghost_gradients_loss(self, activations, reconstructions, pre_activations, dead_features_mask, mse_loss):
         # ghost protocol (from Joseph Bloom: https://github.com/jbloomAus/mats_sae_training/blob/98e4f1bb416b33d49bef1acc676cc3b1e9ed6441/sae_training/sparse_autoencoder.py#L105)
         eps = 1e-30
@@ -225,6 +239,7 @@ class Trainer:
             })
         
         self.n_steps += 1
+        self.loss = float(loss.item())
     
     def fit(self):
         

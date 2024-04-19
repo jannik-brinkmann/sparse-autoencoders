@@ -21,7 +21,7 @@ config = TrainingConfig(
         activation_function="ReLU",
         lr_scheduler = "exponential_with_warmup",
         # SAE Parameters
-        expansion_factor = 4,
+        expansion_factor = 8, # 4
         b_dec_init_method = "",
         
         # Training Parameters
@@ -29,8 +29,10 @@ config = TrainingConfig(
         ctx_length = 256,
         lr = 1e-3,
         lr_warmup_steps = 5000,
-        sparsity_coefficient = 3e-3, 
+        sparsity_coefficient = 3e-1, # 3e-3, 
         evaluation_interval = 200,
+        hessian_penalty = 1,
+        k_for_hessian_penalty=10,
         
         # Activation Buffer
         n_tokens_in_feature_cache = 5e5,
@@ -45,12 +47,12 @@ config = TrainingConfig(
         
         # Weights and Biases
         use_wandb = True,
-        wandb_entity = "best_sae",
-        wandb_project = "best_sae",
+        wandb_entity = "jannikbrinkmann",
+        wandb_project = "best-sae",
         wandb_group = ""
     )
 
-# bis 0.006 gekommen
+
 if __name__ == "__main__":
     """
     configs = []
@@ -69,24 +71,17 @@ if __name__ == "__main__":
         trainer = Trainer(c)  
         trainer.fit()
     """
-    lr_scheduler_list = ["linear_with_warmup", "step_based_with_warmup", "time_based_with_warmup"]
-
-    for lr_scheduler in lr_scheduler_list:
-        config = replace(config, lr_scheduler = lr_scheduler)
-        configs = []
-    
-        config = replace(config, wandb_group = lr_scheduler + "/ ReLU test")
-        configs += get_configs(  # LR sweep
-        config, "lr", [0.01, 0.008, 0.006, 0.004, 0.002, 0.001, 0.0008, 0.0006, 0.0004, 0.0002, 0.0001]
-        )
+    configs = []
+    config = replace(config, wandb_group = "test with hessian penalty (k=10), expansion factor 8, high sparsity coefficient") #diese config noch testen
+    configs += get_configs(  # LR sweep
+    config, "lr", [0.01, 0.008, 0.006, 0.004, 0.002, 0.001, 0.0008, 0.0006, 0.0004, 0.0002, 0.0001]
+    )
     
         # config = replace(config, wandb_group="L1_sweep_v0")
         # configs += get_configs(  # L1 sweep
         #     config, "sparsity_coefficient", [0.01, 0.008, 0.006, 0.004, 0.002, 0.001, 0.0008, 0.0006, 0.0004, 0.0002, 0.0001]
         # )
-    
-        for c in configs:
-            print(c.wandb_group)
-            print(c.lr_scheduler)
-            trainer = Trainer(c)  
-            trainer.fit()
+
+    for c in configs:
+        trainer = Trainer(c)  
+        trainer.fit()

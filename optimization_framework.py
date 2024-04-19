@@ -13,19 +13,12 @@ from src.evaluation import evaluate
 from src.training import CachedActivationLoader, Trainer, TrainingConfig, get_configs
 
 
-# TODO: 1. check whether config modification works 2. scheduler umbauen 3. implement it with optuna 
 
 def objective(trial):
 
     # possible hyperparameters
-    # suggest integer and decode it to a string
-    activation_function = trial.suggest_int("activation_function", 0, 1)
+    k_for_hessian_penalty = trial.suggest_int("k_for_hessian_penalty", 0, 50)
 
-    # decoding of hyperparameters
-    if activation_function == 0:
-        activation_function = "ReLU"
-    else:
-        activation_function = "sigmoid"
     # training config set with hyperparameters
     config = TrainingConfig(
     
@@ -33,7 +26,8 @@ def objective(trial):
         model_name_or_path = "EleutherAI/pythia-70m-deduped", # "EleutherAI/pythia-70m-deduped",
         hook_point = "gpt_neox.layers.3", # "transformer.h.3"
         dataset_name_or_path = "Elriggs/openwebtext-100k", # "jbrinkma/pile-500k",
-        activation_function=activation_function,
+        activation_function="ReLU",
+        lr_scheduler = "exponential_with_warmup",
         # SAE Parameters
         expansion_factor = 4,
         b_dec_init_method = "",
@@ -45,6 +39,8 @@ def objective(trial):
         lr_warmup_steps = 5000,
         sparsity_coefficient = 3e-3, 
         evaluation_interval = 200,
+        hessian_penalty = 0.5,
+        k_for_hessian_penalty = k_for_hessian_penalty,
         
         # Activation Buffer
         n_tokens_in_feature_cache = 5e5,
@@ -59,16 +55,20 @@ def objective(trial):
         
         # Weights and Biases
         use_wandb = True,
-        wandb_entity = "best_sae",
-        wandb_project = "best_sae",
-        wandb_group = ""
+        wandb_entity = "jannikbrinkmann",
+        wandb_project = "best-sae",
+        wandb_group = "test_for_k"
     )
 
     # training and evaluation
+    trainer = Trainer(config)  
+    trainer.fit()
 
-
-    return None
+    
+    return trainer.loss
 
 
 study = optuna.create_study()
-study.optimize(objective, n_trials=3)
+study.optimize(objective, n_trials=20)
+
+print(study.best_params)
