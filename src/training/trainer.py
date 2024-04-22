@@ -40,7 +40,6 @@ class Trainer:
         self.config = replace(self.config, n_steps=n_batches)
         
         # initialize the sparse autoencoder
-        print(config)
         dict_size = self.config.expansion_factor * self.config.activation_size
         self.dict = UntiedSAE(
             activation_size=self.config.activation_size, 
@@ -90,17 +89,17 @@ class Trainer:
         # lr scheduler
         self.lr_scheduler = None
         if config.lr_scheduler == "cosine_with_warmup":
-            self.lr_scheduler = cosine_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = cosine_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "polynomial_with_warmup":
-            self.lr_scheduler = polynomial_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = polynomial_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "exponential_with_warmup":
-            self.lr_scheduler = exponential_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = exponential_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "linear_with_warmup":
-            self.lr_scheduler = linear_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = linear_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "step_based_with_warmup":
-            self.lr_scheduler = step_based_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = step_based_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "time_based_with_warmup":
-            self.lr_scheduler = time_based_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = time_based_with_warm_up_scheduler(config=self.config)
 
 
     # testing learning rate decay scheduler (cosine with warmup) implementation
