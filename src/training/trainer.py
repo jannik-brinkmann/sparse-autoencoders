@@ -90,17 +90,17 @@ class Trainer:
         # lr scheduler
         self.lr_scheduler = None
         if config.lr_scheduler == "cosine_with_warmup":
-            self.lr_scheduler = cosine_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = cosine_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "polynomial_with_warmup":
-            self.lr_scheduler = polynomial_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = polynomial_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "exponential_with_warmup":
-            self.lr_scheduler = exponential_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = exponential_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "linear_with_warmup":
-            self.lr_scheduler = linear_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = linear_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "step_based_with_warmup":
-            self.lr_scheduler = step_based_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = step_based_with_warm_up_scheduler(config=self.config)
         if config.lr_scheduler == "time_based_with_warmup":
-            self.lr_scheduler = time_based_with_warm_up_scheduler(config=config)
+            self.lr_scheduler = time_based_with_warm_up_scheduler(config=self.config)
 
 
     # testing learning rate decay scheduler (cosine with warmup) implementation
